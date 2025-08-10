@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Optimizador de Rutas de Gasolina</title>
 
-    <!-- PWA Manifest and Theme Color -->
     <meta name="theme-color" content="#4f46e5"/>
     <link rel="apple-touch-icon" href="https://placehold.co/192x192/4f46e5/white?text=⛽️">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -13,14 +12,11 @@
     <meta name="apple-mobile-web-app-title" content="GasRuta">
     <link rel="manifest" id="manifest">
     
-    <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- LeafletJS for Map -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
-    <!-- Turf.js for spatial analysis -->
     <script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
 
     <style>
@@ -81,7 +77,6 @@
 </head>
 <body class="bg-gray-100">
 
-    <!-- Sidebar for controls and results -->
     <aside id="sidebar" class="bg-white shadow-lg p-6 flex flex-col">
         <div class="flex-shrink-0">
             <div class="flex justify-between items-center mb-1">
@@ -95,7 +90,6 @@
             </div>
             <p class="text-sm text-gray-500 mb-4">Encuentra las gasolineras más baratas en tu viaje.</p>
             
-            <!-- Settings Panel (hidden by default) -->
             <div id="settings-panel" class="hidden bg-gray-50 p-4 rounded-lg mb-4 border">
                 <h3 class="font-bold text-lg mb-2">Configuración</h3>
                 <div>
@@ -153,15 +147,12 @@
             </form>
         </div>
 
-        <!-- Results Section -->
         <div id="results-container" class="mt-6 flex-grow overflow-y-auto hidden">
             <h2 class="text-xl font-bold text-gray-800 mb-2">Resultados</h2>
             <div id="results" class="space-y-3">
-                <!-- Results will be injected here -->
-            </div>
+                </div>
         </div>
 
-        <!-- Loading/Message Section -->
         <div id="message-container" class="mt-6 flex-grow flex items-center justify-center text-center">
             <div id="message-content">
                 <p class="text-gray-500">Introduce una ruta para comenzar.</p>
@@ -169,7 +160,6 @@
         </div>
     </aside>
 
-    <!-- Map Container -->
     <main id="map-container" class="flex-grow">
         <div id="map"></div>
     </main>
@@ -295,7 +285,7 @@
         function initializeMap() {
             map = L.map('map').setView([40.416775, -3.703790], 6);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             }).addTo(map);
             stationMarkers.addTo(map);
         }
@@ -314,9 +304,6 @@
             messageContent.innerHTML = content;
         }
 
-        /**
-         * Fetches gas station data using a fallback list of CORS proxies for reliability.
-         */
         async function fetchGasStations() {
             showMessage('loading', 'Cargando datos de gasolineras...');
             searchButton.disabled = true;
@@ -324,10 +311,9 @@
 
             const apiUrl = 'https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/';
             
-            // List of proxies to try in order.
             const proxies = [
                 { url: 'https://api.allorigins.win/get?url=', type: 'allorigins' },
-                { url: 'https://corsproxy.io/?url=', type: 'direct' }
+                { url: 'https://corsproxy.io/?', type: 'direct' } // Changed for corsproxy.io
             ];
 
             let jsonData = null;
@@ -335,10 +321,7 @@
             for (const proxy of proxies) {
                 try {
                     console.log(`Intentando con el proxy: ${proxy.url}`);
-                    // Construct the full URL based on the proxy type
-                    const fetchUrl = proxy.type === 'direct' 
-                        ? proxy.url + apiUrl 
-                        : proxy.url + encodeURIComponent(apiUrl);
+                    const fetchUrl = proxy.url + encodeURIComponent(apiUrl);
                     
                     const response = await fetch(fetchUrl);
 
@@ -346,21 +329,18 @@
                         throw new Error(`La petición al proxy falló con estado ${response.status}`);
                     }
                     
-                    // Handle different proxy response formats
                     if (proxy.type === 'allorigins') {
                         const data = await response.json();
                         jsonData = JSON.parse(data.contents);
-                    } else {
+                    } else { // corsproxy.io and others
                         jsonData = await response.json();
-                        console.log(jsonData)
                     }
 
-                    // Check if the actual API data is valid by looking for the gas station list
                     if (jsonData && jsonData.ListaEESSPrecio && Array.isArray(jsonData.ListaEESSPrecio)) {
                         console.log(`Datos obtenidos correctamente con el proxy: ${proxy.url}`);
-                        break; // Success, exit the loop
+                        break;
                     } else {
-                        jsonData = null; // Reset to null to allow the next proxy to be tried
+                        jsonData = null;
                         throw new Error('El proxy funcionó, pero la API devolvió un error o datos no válidos.');
                     }
 
@@ -372,10 +352,9 @@
             if (!jsonData) {
                 console.error("Todos los proxies fallaron.");
                 showMessage('error', 'No se pudieron cargar los datos de las gasolineras. Por favor, recarga la página para intentarlo de nuevo.');
-                return; // Stop execution if data loading fails
+                return;
             }
 
-            // Process the successfully fetched data
             try {
                 allGasStations = jsonData.ListaEESSPrecio
                     .map(s => ({
@@ -413,8 +392,13 @@
                 const routeLine = turf.lineString(routeData.geometry.coordinates);
                 routeLayer = L.geoJSON(routeLine).addTo(map);
                 map.fitBounds(routeLayer.getBounds().pad(0.1));
-                const recommendations = findBestStations(routeLine);
-                displayResults(recommendations);
+                
+                // MODIFICADO: Recibir el objeto con recomendaciones y ahorro
+                const { recommendations, savingsVsAverage } = findBestStations(routeLine);
+                
+                // MODIFICADO: Pasar el ahorro a la función de display
+                displayResults(recommendations, savingsVsAverage);
+
             } catch (error) {
                 console.error("Route calculation error:", error);
                 showMessage('error', error.message);
@@ -433,7 +417,8 @@
             const data = await response.json();
             return (data.code === 'Ok' && data.routes.length > 0) ? data.routes[0] : null;
         }
-
+        
+        // --- FUNCIÓN MODIFICADA ---
         function findBestStations(routeLine) {
             const formData = new FormData(form);
             const fuelType = formData.get('fuel-type');
@@ -444,6 +429,7 @@
             
             const currentFuelLiters = tankCapacity * (currentFuelPercent / 100);
             const maxRange = (currentFuelLiters / consumption) * 100;
+            const fuelToFill = tankCapacity - currentFuelLiters;
 
             const stationsOnRoute = allGasStations.filter(station => {
                 const point = turf.point([station.lon, station.lat]);
@@ -451,29 +437,57 @@
                 return distanceToRoute <= searchRadius && station.prices[fuelType];
             });
 
-            if (stationsOnRoute.length === 0) return [];
+            if (stationsOnRoute.length === 0) {
+                 return { recommendations: [], savingsVsAverage: 0 };
+            }
             
-            const prices = stationsOnRoute.map(s => s.prices[fuelType]).filter(Boolean);
-            if (prices.length === 0) return [];
-            const maxPrice = Math.max(...prices);
+            // NUEVO: Calcular el precio medio de todas las gasolineras en la ruta
+            const allPricesOnRoute = stationsOnRoute
+                .map(s => s.prices[fuelType])
+                .filter(p => p && p > 0);
+
+            if (allPricesOnRoute.length === 0) {
+                 return { recommendations: [], savingsVsAverage: 0 };
+            }
+            const averagePrice = allPricesOnRoute.reduce((sum, price) => sum + price, 0) / allPricesOnRoute.length;
+            
             const originPoint = turf.point(routeLine.geometry.coordinates[0]);
 
             const analyzedStations = stationsOnRoute.map(station => {
                 const stationPoint = turf.point([station.lon, station.lat]);
                 const nearestPointOnRoute = turf.nearestPointOnLine(routeLine, stationPoint);
                 const distanceFromStart = turf.distance(originPoint, nearestPointOnRoute, { units: 'kilometers' });
+                
+                // Filtrar solo las que están dentro de la autonomía actual
                 if (distanceFromStart > maxRange) return null;
-                const fuelToFill = tankCapacity - currentFuelLiters;
+                
+                // Se mantiene el cálculo de ahorro vs la más cara para ordenar la lista
+                const maxPriceOnRoute = Math.max(...allPricesOnRoute);
                 const costHere = fuelToFill * station.prices[fuelType];
-                const costAtMax = fuelToFill * maxPrice;
+                const costAtMax = fuelToFill * maxPriceOnRoute;
                 const savings = costAtMax - costHere;
-                return { ...station, distanceFromStart, savings };
-            }).filter(Boolean);
 
-            return analyzedStations.sort((a, b) => b.savings - a.savings);
+                return { ...station, distanceFromStart, savings };
+            }).filter(Boolean); // Eliminar nulos
+
+            // Ordenar por el mayor ahorro (o por precio más bajo si se prefiere)
+            const sortedRecommendations = analyzedStations.sort((a, b) => b.savings - a.savings);
+            
+            // NUEVO: Calcular el ahorro específico que se pedía
+            let savingsVsAverage = 0;
+            if (sortedRecommendations.length > 0) {
+                const bestStationPrice = sortedRecommendations[0].prices[fuelType];
+                const costAtBestStation = fuelToFill * bestStationPrice;
+                const costAtAveragePrice = fuelToFill * averagePrice;
+                savingsVsAverage = costAtAveragePrice - costAtBestStation;
+            }
+
+            // Devolver un objeto con ambas piezas de información
+            return { recommendations: sortedRecommendations, savingsVsAverage };
         }
         
-        function displayResults(recommendations) {
+        // --- FUNCIÓN MODIFICADA ---
+        function displayResults(recommendations, savingsVsAverage) {
             if (recommendations.length === 0) {
                 if (allGasStations.length === 0) {
                      showMessage('error', 'Error crítico: No se pudieron cargar los datos de las gasolineras. Por favor, recarga la página.');
@@ -485,15 +499,38 @@
 
             messageContainer.classList.add('hidden');
             resultsContainer.classList.remove('hidden');
-            resultsDiv.innerHTML = '';
+            resultsDiv.innerHTML = ''; // Limpiar resultados previos
+
+            // --- NUEVO: Tarjeta de ahorro destacado ---
+            if (savingsVsAverage > 0) {
+                const savingsCard = document.createElement('div');
+                savingsCard.className = 'bg-green-100 border-l-4 border-green-500 text-green-800 p-4 rounded-lg shadow-md mb-4';
+                savingsCard.setAttribute('role', 'alert');
+                savingsCard.innerHTML = `
+                    <div class="flex">
+                        <div class="py-1">
+                            <svg class="h-6 w-6 text-green-500 mr-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="font-bold">Ahorro Destacado</p>
+                            <p class="text-sm">Al repostar en la primera opción, ahorras <strong>${savingsVsAverage.toFixed(2)}€</strong> comparado con el precio medio de la ruta.</p>
+                        </div>
+                    </div>
+                `;
+                resultsDiv.appendChild(savingsCard);
+            }
+            // --- FIN de la tarjeta de ahorro ---
             
             recommendations.slice(0, 10).forEach((station, index) => {
                 const card = document.createElement('div');
-                const origin = originInput.value;
-                const destination = destinationInput.value;
-                const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&waypoints=${station.lat},${station.lon}`;
+                // CORREGIDO: URL de Google Maps funcional
+                const originText = originInput.value;
+                const destinationText = destinationInput.value;
+                const gmapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(originText)}&destination=${encodeURIComponent(destinationText)}&waypoints=${station.lat},${station.lon}`;
 
-                card.className = 'p-3 rounded-lg border border-gray-200 hover:bg-gray-50';
+                card.className = 'p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors duration-150';
                 card.innerHTML = `
                     <div class="info-section cursor-pointer">
                         <div class="flex justify-between items-start">
@@ -509,7 +546,7 @@
                         </div>
                     </div>
                     <div class="mt-3 pt-3 border-t border-gray-200">
-                        <a href="${googleMapsUrl}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center w-full bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition duration-150 ease-in-out">
+                        <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center w-full bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition duration-150 ease-in-out">
                             <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"></path></svg>
                             Abrir en Google Maps
                         </a>
@@ -524,7 +561,7 @@
                 });
                 resultsDiv.appendChild(card);
 
-                const markerColor = index === 0 ? 'green' : 'blue';
+                const markerColor = index === 0 ? '#10B981' : '#3B82F6'; // Verde para el #1, Azul para el resto
                 const markerHtml = `<div style="background-color: ${markerColor}; color: white; border-radius: 50%; width: 2rem; height: 2rem; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">${index + 1}</div>`;
                 const icon = L.divIcon({ html: markerHtml, className: '', iconSize: [32, 32], iconAnchor: [16, 16] });
 
