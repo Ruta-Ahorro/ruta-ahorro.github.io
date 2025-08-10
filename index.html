@@ -166,13 +166,14 @@
                 <!-- Results will be injected here -->
             </div>
             <div id="summary-container" class="hidden mt-4">
-                 <h3 class="text-lg font-bold text-gray-900 mb-2">Resumen del Viaje</h3>
-                 <div id="summary-content" class="space-y-2 text-sm p-3 bg-gray-50 rounded-lg border">
-                     <!-- Summary details will be injected here -->
-                 </div>
                  <button type="button" id="new-route-btn" class="mt-6 w-full bg-gray-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition duration-150 ease-in-out">
                  Nueva Ruta
                 </button>
+                <h3 class="text-lg font-bold text-gray-900 mb-2">Resumen del Viaje</h3>
+                 <div id="summary-content" class="space-y-2 text-sm p-3 bg-gray-50 rounded-lg border">
+                     <!-- Summary details will be injected here -->
+                 </div>
+
             </div>
         <!-- Loading/M
         </div>
@@ -645,7 +646,40 @@ essage Section -->
             title.className = "text-lg font-bold text-gray-900 mb-2";
             title.textContent = "Plan de paradas sugeridas";
             resultsDiv.appendChild(title);
+                        if (stops.length > 0) {
+                const origin = originInput.value;
+                const destination = destinationInput.value;
+                const waypoints = stops.map(s => `${s.lat},${s.lon}`).join('|');
+                const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&waypoints=${encodeURIComponent(waypoints)}`;
 
+                const buttonContainer = document.createElement('div');
+                buttonContainer.className = 'mt-4';
+                buttonContainer.innerHTML = `
+                    <a href="${googleMapsUrl}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center w-full bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition duration-150 ease-in-out">
+                        <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"></path></svg>
+                        Abrir Ruta Completa en Google Maps
+                    </a>
+                `;
+                resultsDiv.appendChild(buttonContainer);
+
+                const savingsVsAvg = results.avgPriceCost - results.optimalCost;
+                const savingsVsMax = results.maxPriceCost - results.optimalCost;
+
+                if (savingsVsAvg > 0 || savingsVsMax > 0) {
+                    const savingsContainer = document.createElement('div');
+                    savingsContainer.className = 'mt-4 p-3 bg-green-50 border border-green-200 rounded-lg';
+                    savingsContainer.innerHTML = `
+                        <h4 class="text-md font-bold text-green-800 mb-2">Resumen de Ahorro</h4>
+                        <p class="text-sm text-green-700">
+                            Ahorras <span class="font-bold">${savingsVsAvg.toFixed(2)}€</span> en comparación con el precio medio de la ruta.
+                        </p>
+                        <p class="text-sm text-green-700 mt-1">
+                            Ahorras <span class="font-bold">${savingsVsMax.toFixed(2)}€</span> en comparación con el más caro.
+                        </p>
+                    `;
+                    resultsDiv.appendChild(savingsContainer);
+                }
+            }
             stops.forEach((station, index) => {
                 const card = document.createElement('div');
                 card.className = 'p-3 rounded-lg border border-gray-200 mb-2';
@@ -674,40 +708,7 @@ essage Section -->
                     .addTo(stationMarkers);
             });
 
-            if (stops.length > 0) {
-                const origin = originInput.value;
-                const destination = destinationInput.value;
-                const waypoints = stops.map(s => `${s.lat},${s.lon}`).join('|');
-                const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&waypoints=${encodeURIComponent(waypoints)}`;
 
-                const buttonContainer = document.createElement('div');
-                buttonContainer.className = 'mt-4';
-                buttonContainer.innerHTML = `
-                    <a href="${googleMapsUrl}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center w-full bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition duration-150 ease-in-out">
-                        <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"></path></svg>
-                        Abrir Ruta Completa en Google Maps
-                    </a>
-                `;
-                resultsDiv.appendChild(buttonContainer);
-
-                const savingsVsAvg = results.avgPriceCost - results.optimalCost;
-                const savingsVsMax = results.maxPriceCost - results.optimalCost;
-
-                if (savingsVsAvg > 0 || savingsVsMax > 0) {
-                    const savingsContainer = document.createElement('div');
-                    savingsContainer.className = 'mt-4 p-3 bg-green-50 border border-green-200 rounded-lg';
-                    savingsContainer.innerHTML = `
-                        <h4 class="text-md font-bold text-green-800 mb-2">Resumen de Ahorro</h4>
-                        <p class="text-sm text-green-700">
-                            Ahorras <span class="font-bold">${savingsVsAvg.toFixed(2)}€</span> en comparación con el precio medio de la ruta.
-                        </p>
-                        <p class="text-sm text-green-700 mt-1">
-                            Ahorras <span class="font-bold">${savingsVsMax.toFixed(2)}€</span> en comparación con haber repostado siempre en la más cara.
-                        </p>
-                    `;
-                    resultsDiv.appendChild(savingsContainer);
-                }
-            }
         }
     </script>
 </body>
