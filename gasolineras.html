@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Optimizador de Rutas de Gasolina</title>
 
+    <!-- PWA Manifest and Theme Color -->
     <meta name="theme-color" content="#4f46e5"/>
     <link rel="apple-touch-icon" href="https://placehold.co/192x192/4f46e5/white?text=⛽️">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -12,11 +13,14 @@
     <meta name="apple-mobile-web-app-title" content="GasRuta">
     <link rel="manifest" id="manifest">
     
+    <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     
+    <!-- LeafletJS for Map -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
+    <!-- Turf.js for spatial analysis -->
     <script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
 
     <style>
@@ -77,6 +81,7 @@
 </head>
 <body class="bg-gray-100">
 
+    <!-- Sidebar for controls and results -->
     <aside id="sidebar" class="bg-white shadow-lg p-6 flex flex-col">
         <div class="flex-shrink-0">
             <div class="flex justify-between items-center mb-1">
@@ -90,6 +95,7 @@
             </div>
             <p class="text-sm text-gray-500 mb-4">Encuentra las gasolineras más baratas en tu viaje.</p>
             
+            <!-- Settings Panel (hidden by default) -->
             <div id="settings-panel" class="hidden bg-gray-50 p-4 rounded-lg mb-4 border">
                 <h3 class="font-bold text-lg mb-2">Configuración</h3>
                 <div>
@@ -147,12 +153,15 @@
             </form>
         </div>
 
+        <!-- Results Section -->
         <div id="results-container" class="mt-6 flex-grow overflow-y-auto hidden">
             <h2 class="text-xl font-bold text-gray-800 mb-2">Resultados</h2>
             <div id="results" class="space-y-3">
-                </div>
+                <!-- Results will be injected here -->
+            </div>
         </div>
 
+        <!-- Loading/Message Section -->
         <div id="message-container" class="mt-6 flex-grow flex items-center justify-center text-center">
             <div id="message-content">
                 <p class="text-gray-500">Introduce una ruta para comenzar.</p>
@@ -160,6 +169,7 @@
         </div>
     </aside>
 
+    <!-- Map Container -->
     <main id="map-container" class="flex-grow">
         <div id="map"></div>
     </main>
@@ -285,7 +295,7 @@
         function initializeMap() {
             map = L.map('map').setView([40.416775, -3.703790], 6);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             }).addTo(map);
             stationMarkers.addTo(map);
         }
@@ -304,6 +314,9 @@
             messageContent.innerHTML = content;
         }
 
+        /**
+         * Fetches gas station data using a fallback list of CORS proxies for reliability.
+         */
         async function fetchGasStations() {
             showMessage('loading', 'Cargando datos de gasolineras...');
             searchButton.disabled = true;
@@ -311,9 +324,10 @@
 
             const apiUrl = 'https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/';
             
+            // List of proxies to try in order.
             const proxies = [
                 { url: 'https://api.allorigins.win/get?url=', type: 'allorigins' },
-                { url: 'https://corsproxy.io/?', type: 'direct' } // Changed for corsproxy.io
+                { url: 'https://corsproxy.io/?url=', type: 'direct' }
             ];
 
             let jsonData = null;
@@ -321,7 +335,10 @@
             for (const proxy of proxies) {
                 try {
                     console.log(`Intentando con el proxy: ${proxy.url}`);
-                    const fetchUrl = proxy.url + encodeURIComponent(apiUrl);
+                    // Construct the full URL based on the proxy type
+                    const fetchUrl = proxy.type === 'direct' 
+                        ? proxy.url + apiUrl 
+                        : proxy.url + encodeURIComponent(apiUrl);
                     
                     const response = await fetch(fetchUrl);
 
@@ -329,18 +346,21 @@
                         throw new Error(`La petición al proxy falló con estado ${response.status}`);
                     }
                     
+                    // Handle different proxy response formats
                     if (proxy.type === 'allorigins') {
                         const data = await response.json();
                         jsonData = JSON.parse(data.contents);
-                    } else { // corsproxy.io and others
+                    } else {
                         jsonData = await response.json();
+                        console.log(jsonData)
                     }
 
+                    // Check if the actual API data is valid by looking for the gas station list
                     if (jsonData && jsonData.ListaEESSPrecio && Array.isArray(jsonData.ListaEESSPrecio)) {
                         console.log(`Datos obtenidos correctamente con el proxy: ${proxy.url}`);
-                        break;
+                        break; // Success, exit the loop
                     } else {
-                        jsonData = null;
+                        jsonData = null; // Reset to null to allow the next proxy to be tried
                         throw new Error('El proxy funcionó, pero la API devolvió un error o datos no válidos.');
                     }
 
@@ -352,9 +372,10 @@
             if (!jsonData) {
                 console.error("Todos los proxies fallaron.");
                 showMessage('error', 'No se pudieron cargar los datos de las gasolineras. Por favor, recarga la página para intentarlo de nuevo.');
-                return;
+                return; // Stop execution if data loading fails
             }
 
+            // Process the successfully fetched data
             try {
                 allGasStations = jsonData.ListaEESSPrecio
                     .map(s => ({
@@ -392,13 +413,9 @@
                 const routeLine = turf.lineString(routeData.geometry.coordinates);
                 routeLayer = L.geoJSON(routeLine).addTo(map);
                 map.fitBounds(routeLayer.getBounds().pad(0.1));
-                
-                // MODIFICADO: Recibir el objeto con recomendaciones y ahorro
-                const { recommendations, savingsVsAverage } = findBestStations(routeLine);
-                
-                // MODIFICADO: Pasar el ahorro a la función de display
-                displayResults(recommendations, savingsVsAverage);
-
+                const routeDistance = turf.length(routeLine, {units: 'kilometers'});
+                const stops = calculateOptimalStops(routeLine, routeDistance);
+                displayResults(stops);
             } catch (error) {
                 console.error("Route calculation error:", error);
                 showMessage('error', error.message);
@@ -417,158 +434,139 @@
             const data = await response.json();
             return (data.code === 'Ok' && data.routes.length > 0) ? data.routes[0] : null;
         }
-        
-        // --- FUNCIÓN MODIFICADA ---
-        function findBestStations(routeLine) {
+
+        function calculateOptimalStops(routeLine, routeDistance) {
+            // 1. Get params from form
             const formData = new FormData(form);
             const fuelType = formData.get('fuel-type');
             const tankCapacity = parseFloat(formData.get('tank-capacity'));
             const currentFuelPercent = parseFloat(formData.get('current-fuel'));
             const consumption = parseFloat(document.getElementById('consumption').value) || 6.5;
             const searchRadius = parseFloat(searchRadiusSlider.value);
-            
-            const currentFuelLiters = tankCapacity * (currentFuelPercent / 100);
-            const maxRange = (currentFuelLiters / consumption) * 100;
-            const fuelToFill = tankCapacity - currentFuelLiters;
 
-            const stationsOnRoute = allGasStations.filter(station => {
-                const point = turf.point([station.lon, station.lat]);
-                const distanceToRoute = turf.pointToLineDistance(point, routeLine, { units: 'kilometers' });
-                return distanceToRoute <= searchRadius && station.prices[fuelType];
-            });
-
-            if (stationsOnRoute.length === 0) {
-                 return { recommendations: [], savingsVsAverage: 0 };
-            }
-            
-            // NUEVO: Calcular el precio medio de todas las gasolineras en la ruta
-            const allPricesOnRoute = stationsOnRoute
-                .map(s => s.prices[fuelType])
-                .filter(p => p && p > 0);
-
-            if (allPricesOnRoute.length === 0) {
-                 return { recommendations: [], savingsVsAverage: 0 };
-            }
-            const averagePrice = allPricesOnRoute.reduce((sum, price) => sum + price, 0) / allPricesOnRoute.length;
-            
+            // 2. Pre-process stations to get their distance from the start along the route
             const originPoint = turf.point(routeLine.geometry.coordinates[0]);
+            const stationsOnRoute = allGasStations
+                .filter(station => {
+                    const point = turf.point([station.lon, station.lat]);
+                    const distanceToRoute = turf.pointToLineDistance(point, routeLine, { units: 'kilometers' });
+                    return distanceToRoute <= searchRadius && station.prices[fuelType];
+                })
+                .map(station => {
+                    const stationPoint = turf.point([station.lon, station.lat]);
+                    const nearestPointOnRoute = turf.nearestPointOnLine(routeLine, stationPoint);
+                    const distanceFromStart = turf.distance(originPoint, nearestPointOnRoute, { units: 'kilometers' });
+                    return { ...station, distanceFromStart };
+                })
+                .sort((a, b) => a.distanceFromStart - b.distanceFromStart);
 
-            const analyzedStations = stationsOnRoute.map(station => {
-                const stationPoint = turf.point([station.lon, station.lat]);
-                const nearestPointOnRoute = turf.nearestPointOnLine(routeLine, stationPoint);
-                const distanceFromStart = turf.distance(originPoint, nearestPointOnRoute, { units: 'kilometers' });
+            // 3. Greedy algorithm to find stops
+            const plannedStops = [];
+            let currentDist = 0;
+            let currentFuel = tankCapacity * (currentFuelPercent / 100);
+
+            while (currentDist < routeDistance) {
+                const range = (currentFuel / consumption) * 100;
+
+                // If we can reach the destination, no more stops are needed.
+                if (currentDist + range >= routeDistance) {
+                    break;
+                }
+
+                // Find all stations we can reach from our current location with our current fuel.
+                const reachableStations = stationsOnRoute.filter(s => s.distanceFromStart > currentDist && s.distanceFromStart <= currentDist + range);
+
+                // If there are no reachable stations, the route is impossible with the current fuel.
+                if (reachableStations.length === 0) {
+                    throw new Error("No se puede completar la ruta. No hay gasolineras alcanzables en el siguiente tramo.");
+                }
+
+                // Greedy choice: pick the cheapest station from the set of reachable ones.
+                const nextStop = reachableStations.reduce((cheapest, s) => s.prices[fuelType] < cheapest.prices[fuelType] ? s : cheapest, reachableStations[0]);
                 
-                // Filtrar solo las que están dentro de la autonomía actual
-                if (distanceFromStart > maxRange) return null;
+                // Calculate how much fuel is needed to get to this chosen stop.
+                const distToNextStop = nextStop.distanceFromStart - currentDist;
+                const fuelNeeded = (distToNextStop / 100) * consumption;
+
+                // Update our state to the new stop
+                currentFuel -= fuelNeeded;
+                currentDist = nextStop.distanceFromStart;
+
+                // Assume we always fill the tank for simplicity in this version.
+                const fuelToRefill = tankCapacity - currentFuel;
+                nextStop.refuelAmount = fuelToRefill;
+                nextStop.refuelCost = fuelToRefill * nextStop.prices[fuelType];
                 
-                // Se mantiene el cálculo de ahorro vs la más cara para ordenar la lista
-                const maxPriceOnRoute = Math.max(...allPricesOnRoute);
-                const costHere = fuelToFill * station.prices[fuelType];
-                const costAtMax = fuelToFill * maxPriceOnRoute;
-                const savings = costAtMax - costHere;
-
-                return { ...station, distanceFromStart, savings };
-            }).filter(Boolean); // Eliminar nulos
-
-            // Ordenar por el mayor ahorro (o por precio más bajo si se prefiere)
-            const sortedRecommendations = analyzedStations.sort((a, b) => b.savings - a.savings);
-            
-            // NUEVO: Calcular el ahorro específico que se pedía
-            let savingsVsAverage = 0;
-            if (sortedRecommendations.length > 0) {
-                const bestStationPrice = sortedRecommendations[0].prices[fuelType];
-                const costAtBestStation = fuelToFill * bestStationPrice;
-                const costAtAveragePrice = fuelToFill * averagePrice;
-                savingsVsAverage = costAtAveragePrice - costAtBestStation;
+                plannedStops.push(nextStop);
+                currentFuel = tankCapacity; // Tank is now full for the next leg.
             }
 
-            // Devolver un objeto con ambas piezas de información
-            return { recommendations: sortedRecommendations, savingsVsAverage };
+            return plannedStops;
         }
         
-        // --- FUNCIÓN MODIFICADA ---
-        function displayResults(recommendations, savingsVsAverage) {
-            if (recommendations.length === 0) {
+        function displayResults(stops) {
+            if (stops.length === 0) {
                 if (allGasStations.length === 0) {
                      showMessage('error', 'Error crítico: No se pudieron cargar los datos de las gasolineras. Por favor, recarga la página.');
                 } else {
-                     showMessage('info', 'No se encontraron gasolineras adecuadas. Prueba a aumentar la distancia de búsqueda en la configuración.');
+                     showMessage('info', 'No se necesitan paradas para este viaje. ¡Puedes llegar directamente!');
                 }
                 return;
             }
 
             messageContainer.classList.add('hidden');
             resultsContainer.classList.remove('hidden');
-            resultsDiv.innerHTML = ''; // Limpiar resultados previos
-
-            // --- NUEVO: Tarjeta de ahorro destacado ---
-            if (savingsVsAverage > 0) {
-                const savingsCard = document.createElement('div');
-                savingsCard.className = 'bg-green-100 border-l-4 border-green-500 text-green-800 p-4 rounded-lg shadow-md mb-4';
-                savingsCard.setAttribute('role', 'alert');
-                savingsCard.innerHTML = `
-                    <div class="flex">
-                        <div class="py-1">
-                            <svg class="h-6 w-6 text-green-500 mr-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                            </svg>
-                        </div>
-                        <div>
-                            <p class="font-bold">Ahorro Destacado</p>
-                            <p class="text-sm">Al repostar en la primera opción, ahorras <strong>${savingsVsAverage.toFixed(2)}€</strong> comparado con el precio medio de la ruta.</p>
-                        </div>
-                    </div>
-                `;
-                resultsDiv.appendChild(savingsCard);
-            }
-            // --- FIN de la tarjeta de ahorro ---
+            resultsDiv.innerHTML = '';
             
-            recommendations.slice(0, 10).forEach((station, index) => {
-                const card = document.createElement('div');
-                // CORREGIDO: URL de Google Maps funcional
-                const originText = originInput.value;
-                const destinationText = destinationInput.value;
-                const gmapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(originText)}&destination=${encodeURIComponent(destinationText)}&waypoints=${station.lat},${station.lon}`;
+            const title = document.createElement('h3');
+            title.className = "text-lg font-bold text-gray-900 mb-2";
+            title.textContent = "Plan de Paradas Sugerido";
+            resultsDiv.appendChild(title);
 
-                card.className = 'p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors duration-150';
+            stops.forEach((station, index) => {
+                const card = document.createElement('div');
+                card.className = 'p-3 rounded-lg border border-gray-200 mb-2';
                 card.innerHTML = `
-                    <div class="info-section cursor-pointer">
-                        <div class="flex justify-between items-start">
-                            <div class="flex-grow">
-                                <p class="font-bold text-indigo-700">${index + 1}. ${station.name}</p>
-                                <p class="text-sm text-gray-600">${station.address}</p>
-                                <p class="text-sm text-gray-500">Aprox. en el km ${Math.round(station.distanceFromStart)}</p>
-                            </div>
-                            <div class="text-right ml-2 flex-shrink-0">
-                                <p class="text-lg font-bold text-gray-800">${station.prices[form.elements['fuel-type'].value].toFixed(3)} €/L</p>
-                                <p class="text-sm font-semibold text-green-600">Ahorro: ${station.savings.toFixed(2)}€</p>
-                            </div>
+                    <div class="flex justify-between items-start">
+                        <div class="flex-grow">
+                            <p class="font-bold text-indigo-700">Parada ${index + 1}: ${station.name}</p>
+                            <p class="text-sm text-gray-600">${station.address}</p>
+                            <p class="text-sm text-gray-500">Aprox. en el km ${Math.round(station.distanceFromStart)}</p>
+                        </div>
+                        <div class="text-right ml-2 flex-shrink-0">
+                            <p class="text-lg font-bold text-gray-800">${station.prices[form.elements['fuel-type'].value].toFixed(3)} €/L</p>
+                            <p class="text-sm text-gray-500">Repostar: ${station.refuelAmount.toFixed(1)} L</p>
+                            <p class="text-sm font-semibold text-green-600">Coste: ${station.refuelCost.toFixed(2)}€</p>
                         </div>
                     </div>
-                    <div class="mt-3 pt-3 border-t border-gray-200">
-                        <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center w-full bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition duration-150 ease-in-out">
-                            <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"></path></svg>
-                            Abrir en Google Maps
-                        </a>
-                    </div>
                 `;
-                
-                card.querySelector('.info-section').addEventListener('click', () => {
-                    map.setView([station.lat, station.lon], 15);
-                    stationMarkers.eachLayer(marker => {
-                        if (marker.options.stationId === station.id) marker.openPopup();
-                    });
-                });
                 resultsDiv.appendChild(card);
 
-                const markerColor = index === 0 ? '#10B981' : '#3B82F6'; // Verde para el #1, Azul para el resto
+                const markerColor = 'red';
                 const markerHtml = `<div style="background-color: ${markerColor}; color: white; border-radius: 50%; width: 2rem; height: 2rem; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">${index + 1}</div>`;
                 const icon = L.divIcon({ html: markerHtml, className: '', iconSize: [32, 32], iconAnchor: [16, 16] });
 
                 L.marker([station.lat, station.lon], { icon, stationId: station.id })
-                    .bindPopup(`<b>${station.name}</b><br>${station.address}<br>Precio: ${station.prices[form.elements['fuel-type'].value].toFixed(3)} €/L<br><b>Ahorro: ${station.savings.toFixed(2)}€</b>`)
+                    .bindPopup(`<b>Parada ${index + 1}: ${station.name}</b><br>${station.address}<br>Precio: ${station.prices[form.elements['fuel-type'].value].toFixed(3)} €/L`)
                     .addTo(stationMarkers);
             });
+
+            if (stops.length > 0) {
+                const origin = originInput.value;
+                const destination = destinationInput.value;
+                const waypoints = stops.map(s => `${s.lat},${s.lon}`).join('|');
+                const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&waypoints=${encodeURIComponent(waypoints)}`;
+
+                const buttonContainer = document.createElement('div');
+                buttonContainer.className = 'mt-4';
+                buttonContainer.innerHTML = `
+                    <a href="${googleMapsUrl}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center w-full bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition duration-150 ease-in-out">
+                        <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"></path></svg>
+                        Abrir Ruta Completa en Google Maps
+                    </a>
+                `;
+                resultsDiv.appendChild(buttonContainer);
+            }
         }
     </script>
 </body>
