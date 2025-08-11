@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="GasRuta">
-    <link rel="manifest" id="manifest">
+    <link rel="manifest" href="/manifest.json">
     
     <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -103,6 +103,13 @@
                     <input type="range" id="search-radius" name="search-radius" min="1" max="25" value="5" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
                     <p class="text-xs text-gray-500 mt-1">Distancia máxima desde la ruta para buscar gasolineras.</p>
                 </div>
+                <div class="mt-4">
+                    <label for="include-restricted" class="flex items-center cursor-pointer">
+                        <input type="checkbox" id="include-restricted" name="include-restricted" class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
+                        <span class="ml-2 text-sm font-medium text-gray-700">Incluir gasolineras restringidas</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1">Estas vienen marcadas en la llamada como "Tipo Venta": "R" y son para uso de cooperativas, flotas, etc.</p>
+                </div>
             </div>
 
             <form id="route-form">
@@ -190,39 +197,23 @@ essage Section -->
         <div id="map"></div>
     </main>
 
-    <script>
-        // --- PWA Setup: Manifest and Service Worker ---
-        const manifest = {
-            "short_name": "GasRuta", "name": "Optimizador de Rutas de Gasolina",
-            "icons": [
-                {"src": "https://placehold.co/192x192/4f46e5/white?text=⛽️", "type": "image/png", "sizes": "192x192"},
-                {"src": "https://placehold.co/512x512/4f46e5/white?text=⛽️", "type": "image/png", "sizes": "512x512"}
-            ],
-            "start_url": ".", "display": "standalone", "theme_color": "#4f46e5", "background_color": "#f3f4f6"
-        };
-        const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
-        const manifestURL = URL.createObjectURL(manifestBlob);
-        document.querySelector('#manifest').setAttribute('href', manifestURL);
+    <!-- Spinner Overlay -->
+    <div id="spinner-overlay" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
+        <div class="loader"></div>
+    </div>
 
-        const serviceWorkerCode = `
-            const CACHE_NAME = 'gas-ruta-cache-v1';
-            const urlsToCache = ['/', 'https://cdn.tailwindcss.com', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', 'https://unpkg.com/@turf/turf@6/turf.min.js', 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap', 'https://placehold.co/192x192/4f46e5/white?text=⛽️', 'https://placehold.co/512x512/4f46e5/white?text=⛽️'];
-            self.addEventListener('install', e => e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(urlsToCache))));
-            self.addEventListener('fetch', e => e.respondWith(caches.match(e.request).then(r => r || fetch(e.request))));
-            self.addEventListener('activate', e => {
-                const w = [CACHE_NAME];
-                e.waitUntil(caches.keys().then(n => Promise.all(n.map(c => w.indexOf(c) === -1 ? caches.delete(c) : null))));
-            });
-        `;
+    <script>
+        // --- PWA Setup: Service Worker Registration ---
         if ('serviceWorker' in navigator) {
-            const swBlob = new Blob([serviceWorkerCode], { type: 'application/javascript' });
-            const swUrl = URL.createObjectURL(swBlob);
-            navigator.serviceWorker.register(swUrl)
-                .then(reg => console.log('ServiceWorker registration successful'))
-                .catch(err => console.log('ServiceWorker registration failed: ', err));
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('ServiceWorker registration successful.', reg))
+                    .catch(err => console.log('ServiceWorker registration failed: ', err));
+            });
         }
 
         // --- DOM Elements ---
+        const spinnerOverlay = document.getElementById('spinner-overlay');
         const form = document.getElementById('route-form');
         const searchButton = document.getElementById('search-button');
         const originInput = document.getElementById('origin');
@@ -245,6 +236,14 @@ essage Section -->
         const newRouteBtn = document.getElementById('new-route-btn');
 
         // --- App State ---
+        // --- Spinner Control ---
+        function showSpinner() {
+            spinnerOverlay.classList.remove('hidden');
+        }
+
+        function hideSpinner() {
+            spinnerOverlay.classList.add('hidden');
+        }
         let map;
         let routeLayer;
         let stationMarkers = L.layerGroup();
@@ -426,7 +425,9 @@ essage Section -->
          * Fetches gas station data using a fallback list of CORS proxies for reliability.
          */
         async function fetchGasStations() {
-            showMessage('loading', 'Cargando datos de gasolineras...');
+            showSpinner();
+            // The old message is redundant now
+            // showMessage('loading', 'Cargando datos de gasolineras...');
             searchButton.disabled = true;
             searchButton.classList.add('opacity-50', 'cursor-not-allowed');
 
@@ -477,6 +478,8 @@ essage Section -->
                 }
             }
 
+            hideSpinner();
+
             if (!jsonData) {
                 console.error("Todos los proxies fallaron.");
                 showMessage('error', 'No se pudieron cargar los datos de las gasolineras. Por favor, recarga la página para intentarlo de nuevo.');
@@ -489,6 +492,7 @@ essage Section -->
                     .map(s => ({
                         id: s['IDEESS'], name: s['Rótulo'], address: `${s['Dirección']}, ${s['Localidad']}`,
                         lat: parseFloat(s['Latitud'].replace(',', '.')), lon: parseFloat(s['Longitud (WGS84)'].replace(',', '.')),
+                        tipoVenta: s['Tipo Venta'],
                         prices: {
                             'Precio Gasoleo A': parseFloat(s['Precio Gasoleo A'].replace(',', '.')) || null,
                             'Precio Gasolina 95 E5': parseFloat(s['Precio Gasolina 95 E5'].replace(',', '.')) || null,
@@ -509,35 +513,82 @@ essage Section -->
 
         async function handleFormSubmit(e) {
             e.preventDefault();
-            showMessage('loading', 'Calculando la mejor ruta y paradas...');
+            showSpinner();
+            //showMessage('loading', 'Calculando la mejor ruta y paradas...');
             if (routeLayer) map.removeLayer(routeLayer);
             stationMarkers.clearLayers();
             resultsDiv.innerHTML = '';
+
             try {
                 const [originCoords, destCoords] = await Promise.all([geocodeAddress(originInput.value), geocodeAddress(destinationInput.value)]);
                 if (!originCoords || !destCoords) throw new Error("No se pudieron encontrar las direcciones. Sé más específico.");
+                
                 const routeData = await getRoute(originCoords, destCoords);
                 if (!routeData) throw new Error("No se pudo calcular la ruta entre los puntos.");
+
                 const routeLine = turf.lineString(routeData.geometry.coordinates);
                 routeLayer = L.geoJSON(routeLine).addTo(map);
                 map.fitBounds(routeLayer.getBounds().pad(0.1));
-                const routeDistance = turf.length(routeLine, {units: 'kilometers'});
-                const results = calculateOptimalStops(routeLine, routeDistance);
-                displayResults(results);
+                const routeDistance = turf.length(routeLine, { units: 'kilometers' });
 
-                // Hide form and show summary
-                form.classList.add('hidden');
-                const formData = new FormData(form);
-                const fuelTypeEl = form.elements['fuel-type'];
-                summaryContent.innerHTML = `
-                    <p><strong>Origen:</strong> ${formData.get('origin')}</p>
-                    <p><strong>Destino:</strong> ${formData.get('destination')}</p>
-                    <p><strong>Combustible:</strong> ${fuelTypeEl.options[fuelTypeEl.selectedIndex].text}</p>
-                    <p><strong>Consumo:</strong> ${formData.get('consumption')} L/100km</p>
-                `;
-                summaryContainer.classList.remove('hidden');
+                // --- Web Worker Implementation ---
+                const worker = new Worker('worker.js');
+
+                worker.onmessage = function(e) {
+                    hideSpinner();
+                    const { success, results, error } = e.data;
+                    if (success) {
+                        console.log('Main: Results received from worker.');
+                        displayResults(results);
+                        
+                        // Hide form and show summary
+                        form.classList.add('hidden');
+                        const formData = new FormData(form);
+                        const fuelTypeEl = form.elements['fuel-type'];
+                        summaryContent.innerHTML = `
+                            <p><strong>Origen:</strong> ${formData.get('origin')}</p>
+                            <p><strong>Destino:</strong> ${formData.get('destination')}</p>
+                            <p><strong>Combustible:</strong> ${fuelTypeEl.options[fuelTypeEl.selectedIndex].text}</p>
+                            <p><strong>Consumo:</strong> ${formData.get('consumption')} L/100km</p>
+                        `;
+                        summaryContainer.classList.remove('hidden');
+                    } else {
+                        console.error('Main: Error message received from worker.', error);
+                        showMessage('error', error);
+                    }
+                    // Terminate worker after use
+                    worker.terminate();
+                };
+
+                worker.onerror = function(e) {
+                    hideSpinner();
+                    console.error('Main: An error occurred in the worker.', e);
+                    showMessage('error', `Error en el worker: ${e.message}`);
+                    worker.terminate();
+                };
+
+                // Collect parameters to send to the worker
+                const params = {
+                    fuelType: document.getElementById('fuel-type').value,
+                    tankCapacity: parseFloat(document.getElementById('tank-capacity').value),
+                    currentFuelPercent: parseFloat(document.getElementById('current-fuel').value),
+                    consumption: parseFloat(document.getElementById('consumption').value) || 6.5,
+                    searchRadius: parseFloat(document.getElementById('search-radius').value),
+                    includeRestricted: document.getElementById('include-restricted').checked
+                };
+
+                console.log('Main: Posting message to worker.');
+                // Post data to the worker to start calculation.
+                worker.postMessage({
+                    routeLine,
+                    routeDistance,
+                    params,
+                    allGasStations
+                });
+                // --- End of Web Worker Implementation ---
 
             } catch (error) {
+                hideSpinner();
                 console.error("Route calculation error:", error);
                 showMessage('error', error.message);
             }
@@ -554,77 +605,6 @@ essage Section -->
             const response = await fetch(url);
             const data = await response.json();
             return (data.code === 'Ok' && data.routes.length > 0) ? data.routes[0] : null;
-        }
-
-        function calculateOptimalStops(routeLine, routeDistance) {
-            // 1. Get params from form
-            const formData = new FormData(form);
-            const fuelType = formData.get('fuel-type');
-            const tankCapacity = parseFloat(formData.get('tank-capacity'));
-            const currentFuelPercent = parseFloat(formData.get('current-fuel'));
-            const consumption = parseFloat(document.getElementById('consumption').value) || 6.5;
-            const searchRadius = parseFloat(searchRadiusSlider.value);
-
-            // 2. Pre-process stations and calculate price metrics
-            const originPoint = turf.point(routeLine.geometry.coordinates[0]);
-            const stationsOnRoute = allGasStations
-                .filter(station => {
-                    const point = turf.point([station.lon, station.lat]);
-                    const distanceToRoute = turf.pointToLineDistance(point, routeLine, { units: 'kilometers' });
-                    return distanceToRoute <= searchRadius && station.prices[fuelType];
-                })
-                .map(station => {
-                    const stationPoint = turf.point([station.lon, station.lat]);
-                    const nearestPointOnRoute = turf.nearestPointOnLine(routeLine, stationPoint);
-                    const distanceFromStart = turf.distance(originPoint, nearestPointOnRoute, { units: 'kilometers' });
-                    return { ...station, distanceFromStart };
-                })
-                .sort((a, b) => a.distanceFromStart - b.distanceFromStart);
-
-            const prices = stationsOnRoute.map(s => s.prices[fuelType]);
-            const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
-            const avgPrice = prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : 0;
-            
-            // 3. Greedy algorithm to find stops
-            const plannedStops = [];
-            let currentDist = 0;
-            let currentFuel = tankCapacity * (currentFuelPercent / 100);
-
-            while (currentDist < routeDistance) {
-                const range = (currentFuel / consumption) * 100;
-                if (currentDist + range >= routeDistance) break;
-
-                const reachableStations = stationsOnRoute.filter(s => s.distanceFromStart > currentDist && s.distanceFromStart <= currentDist + range);
-                if (reachableStations.length === 0) throw new Error("No se puede completar la ruta. No hay gasolineras alcanzables en el siguiente tramo.");
-
-                const nextStop = reachableStations.reduce((cheapest, s) => s.prices[fuelType] < cheapest.prices[fuelType] ? s : cheapest, reachableStations[0]);
-                
-                const distToNextStop = nextStop.distanceFromStart - currentDist;
-                const fuelNeeded = (distToNextStop / 100) * consumption;
-
-                currentFuel -= fuelNeeded;
-                currentDist = nextStop.distanceFromStart;
-
-                const fuelToRefill = tankCapacity - currentFuel;
-                nextStop.refuelAmount = fuelToRefill;
-                nextStop.refuelCost = fuelToRefill * nextStop.prices[fuelType];
-                
-                plannedStops.push(nextStop);
-                currentFuel = tankCapacity;
-            }
-
-            // 4. Calculate final costs for comparison
-            const optimalCost = plannedStops.reduce((total, stop) => total + stop.refuelCost, 0);
-            const totalRefuelAmount = plannedStops.reduce((total, stop) => total + stop.refuelAmount, 0);
-            const avgPriceCost = totalRefuelAmount * avgPrice;
-            const maxPriceCost = totalRefuelAmount * maxPrice;
-
-            return {
-                stops: plannedStops,
-                optimalCost: optimalCost,
-                avgPriceCost: avgPriceCost,
-                maxPriceCost: maxPriceCost
-            };
         }
         
         function displayResults(results) {
