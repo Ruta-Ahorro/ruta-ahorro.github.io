@@ -1,20 +1,32 @@
 {
     "short_name": "GasRuta",
     "name": "Optimizador de Rutas de Gasolina",
+    "lang": "es",
+    "description": "Encuentra las gasolineras más baratas en tu ruta y planifica tus paradas para ahorrar dinero en cada viaje.",
+    "id": "/",
+    "start_url": ".",
+    "scope": "/",
+    "display": "standalone",
+    "orientation": "portrait-primary",
+    "background_color": "#f3f4f6",
+    "theme_color": "#4f46e5",
+    "categories": ["maps", "navigation", "travel"],
     "icons": [
         {
-            "src": "icono.svg",
-            "type": "image/svg",
-            "sizes": "192x192"
+            "src": "https://placehold.co/192x192/4f46e5/white?text=⛽️",
+            "type": "image/png",
+            "sizes": "192x192",
+            "purpose": "any maskable"
         },
         {
-            "src": "icono.svg",
-            "type": "image/svg",
-            "sizes": "512x512"
+            "src": "https://placehold.co/512x512/4f46e5/white?text=⛽️",
+            "type": "image/png",
+            "sizes": "512x512",
+            "purpose": "any maskable"
         }
+
     ],
-    "start_url": ".",
-    "display": "standalone",
-    "theme_color": "#4f46e5",
-    "background_color": "#f3f4f6"
+    "launch_handler": {
+        "client_mode": ["navigate-existing", "auto"]
+    }
 }
