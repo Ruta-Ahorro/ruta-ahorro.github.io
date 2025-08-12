@@ -13,16 +13,16 @@
     "categories": ["maps", "navigation", "travel"],
     "icons": [
         {
-            "src": "https://placehold.co/192x192/4f46e5/white?text=⛽️",
+            "src": "logo192.png",
             "type": "image/png",
             "sizes": "192x192",
-            "purpose": "any maskable"
+            "purpose": "any"
         },
         {
-            "src": "https://placehold.co/512x512/4f46e5/white?text=⛽️",
+            "src": "logo512.png",
             "type": "image/png",
             "sizes": "512x512",
-            "purpose": "any maskable"
+            "purpose": "maskable"
         }
 
     ],
