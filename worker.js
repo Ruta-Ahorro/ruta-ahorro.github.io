@@ -97,13 +97,13 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations)
 // Set up the event listener for messages from the main thread.
 self.onmessage = function(e) {
     console.log('Worker: Message received from main script');
-    const { routeLine, routeDistance, params, allGasStations } = e.data;
+    const { routeLine, routeDistance, params, allGasStations, origin, destination } = e.data;
 
     try {
         const results = calculateOptimalStops(routeLine, routeDistance, params, allGasStations);
         console.log('Worker: Calculation complete, posting results back to main script');
-        // Post the results back to the main thread.
-        postMessage({ success: true, results });
+        // Post the results back to the main thread, including the original origin/destination text.
+        postMessage({ success: true, results, origin, destination });
     } catch (error) {
         console.error('Worker: Error during calculation', error);
         // If an error occurs, post an error message back.

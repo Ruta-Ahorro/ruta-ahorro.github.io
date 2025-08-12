@@ -10,9 +10,7 @@ const urlsToCache = [
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
     'https://unpkg.com/@turf/turf@6/turf.min.js',
-    'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap',
-    'https://placehold.co/192x192/4f46e5/white?text=⛽️',
-    'https://placehold.co/512x512/4f46e5/white?text=⛽️'
+    'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap'
 ];
 
 // Listen for the 'install' event.
