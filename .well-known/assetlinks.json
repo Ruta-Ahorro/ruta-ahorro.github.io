@@ -1,0 +1,11 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.github.ruta_ahorro.twa",
+      "sha256_cert_fingerprints":
+        ["27:F0:50:D7:9A:CA:A0:58:E6:2E:1A:91:25:D3:85:81:78:43:ED:26:AB:AB:66:07:D0:D1:94:90:02:C1:D5:74"]
+    }
+  }
+]
