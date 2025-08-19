@@ -44,9 +44,9 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations)
             const stationPoint = turf.point([station.lon, station.lat]);
             const nearestPointOnRoute = turf.nearestPointOnLine(routeLine, stationPoint);
             const distanceFromStart = turf.distance(originPoint, nearestPointOnRoute, { units: 'kilometers' });
-            const distanceFromEnd = turf.distance(endPoint, nearestPointOnRoute, { units: 'kilometers' }); // <-- CORRECCIÓN 1
+            const distanceFromEnd = turf.distance(endPoint, nearestPointOnRoute, { units: 'kilometers' });
 
-            return { ...station, distanceFromStart, distanceFromEnd }; // <-- CORRECCIÓN 1
+            return { ...station, distanceFromStart, distanceFromEnd };
         })
         .sort((a, b) => a.distanceFromStart - b.distanceFromStart);
     
@@ -69,7 +69,17 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations)
             throw new Error("No se puede completar la ruta. No hay gasolineras alcanzables en el siguiente tramo.");
         }
 
-        const nextStop = reachableStations.reduce((cheapest, s) => s.prices[fuelType] < cheapest.prices[fuelType] ? s : cheapest, reachableStations[0]);
+        // MODIFICACIÓN: En lugar de picking el más barato (y earliest en ties), preferir el farthest en ties para saltar clusters.
+        const nextStop = reachableStations.reduce((best, s) => {
+            const priceS = s.prices[fuelType];
+            const priceBest = best.prices[fuelType];
+            if (priceS < priceBest) {
+                return s;
+            } else if (priceS === priceBest && s.distanceFromStart > best.distanceFromStart) {
+                return s;
+            }
+            return best;
+        }, reachableStations[0]);
         
         const distToNextStop = nextStop.distanceFromStart - currentDist;
         const fuelNeeded = (distToNextStop / 100) * consumption;
@@ -94,17 +104,27 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations)
         // Máxima distancia desde el destino a la que podemos parar para repostar
         const maxLastLegDist = ((tankCapacity - desiredFuel) / consumption) * 100;
         
-        // <-- CORRECCIÓN 1: Filtro mejorado
+        // MODIFICACIÓN: Corregir el filtro a <= (era >=, lo cual es un bug; debe ser paradas cercanas al final).
         const feasibleLastStops = stationsOnRoute.filter(s => 
             s.distanceFromStart > currentDist &&
-            s.distanceFromEnd >= maxLastLegDist
+            s.distanceFromEnd <= maxLastLegDist
         );
         
         if (feasibleLastStops.length === 0) {
             throw new Error("No se puede completar la ruta con el nivel de combustible deseado en destino. No hay gasolineras adecuadas cerca del final.");
         }
 
-        const extraStop = feasibleLastStops.reduce((cheapest, s) => s.prices[fuelType] < cheapest.prices[fuelType] ? s : cheapest, feasibleLastStops[0]);
+        // MODIFICACIÓN: Aplicar el mismo tie-breaker (farthest en ties, i.e., closest to end).
+        const extraStop = feasibleLastStops.reduce((best, s) => {
+            const priceS = s.prices[fuelType];
+            const priceBest = best.prices[fuelType];
+            if (priceS < priceBest) {
+                return s;
+            } else if (priceS === priceBest && s.distanceFromStart > best.distanceFromStart) {
+                return s;
+            }
+            return best;
+        }, feasibleLastStops[0]);
 
         const distToExtra = extraStop.distanceFromStart - currentDist;
         const fuelNeededToExtra = (distToExtra / 100) * consumption;

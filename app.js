@@ -287,7 +287,7 @@ async function fetchGasStations() {
 
     if (!jsonData) {
         console.error("Todos los proxies fallaron.");
-        showMessage('error', 'No se pudieron cargar los datos de las gasolineras. Por favor, recarga la página para intentarlo de nuevo.');
+        showMessage('error', 'Error de conexión: No se pudieron cargar los datos de las gasolineras del gobierno. El servicio puede estar temporalmente caído. Por favor, inténtalo de nuevo más tarde.');
         return; // Stop execution if data loading fails
     }
 
@@ -335,11 +335,23 @@ async function handleFormSubmit(e) {
         const originText = originInput.value;
         const destinationText = destinationInput.value;
 
-        const [originCoords, destCoords] = await Promise.all([geocodeAddress(originText), geocodeAddress(destinationText)]);
-        if (!originCoords || !destCoords) throw new Error("No se pudieron encontrar las direcciones. Sé más específico.");
+        let originCoords, destCoords;
+        try {
+            [originCoords, destCoords] = await Promise.all([geocodeAddress(originText), geocodeAddress(destinationText)]);
+        } catch (e) {
+            throw new Error("Error de conexión con el servicio de mapas (Nominatim) al buscar direcciones.");
+        }
         
-        const routeData = await getRoute(originCoords, destCoords);
-        if (!routeData) throw new Error("No se pudo calcular la ruta entre los puntos.");
+        if (!originCoords || !destCoords) throw new Error("No se pudieron geolocalizar las direcciones. Intenta ser más específico o revisa tu conexión.");
+
+        let routeData;
+        try {
+            routeData = await getRoute(originCoords, destCoords);
+        } catch (e) {
+            throw new Error("Error de conexión con el servicio de rutas (OSRM). No se pudo calcular la ruta.");
+        }
+        
+        if (!routeData) throw new Error("No se pudo encontrar una ruta válida entre el origen y el destino.");
 
         const routeLine = turf.lineString(routeData.geometry.coordinates);
         routeLayer = L.geoJSON(routeLine).addTo(map);
@@ -371,7 +383,12 @@ async function handleFormSubmit(e) {
                 summaryContainer.classList.remove('hidden');
             } else {
                 console.error('Main: Error message received from worker.', error);
-                showMessage('error', error);
+                // Custom, more user-friendly error messages
+                let userMessage = error;
+                if (error.includes("No hay gasolineras alcanzables") || error.includes("No hay gasolineras adecuadas")) {
+                    userMessage = "No se encontraron gasolineras adecuadas para completar la ruta con la configuración actual. Prueba a aumentar la distancia de búsqueda en la configuración.";
+                }
+                showMessage('error', userMessage);
             }
             // Terminate worker after use
             worker.terminate();
@@ -433,7 +450,7 @@ function displayResults(results, origin, destination) {
         if (allGasStations.length === 0) {
              showMessage('error', 'Error crítico: No se pudieron cargar los datos de las gasolineras. Por favor, recarga la página.');
         } else {
-             showMessage('info', 'No se necesitan paradas para este viaje. ¡Puedes llegar directamente!');
+             showMessage('info', '¡Buenas noticias! Con tu nivel de combustible actual, puedes llegar a tu destino sin necesidad de repostar.');
         }
         return;
     }
