@@ -124,9 +124,8 @@
             <form id="route-form">
                 <div class="space-y-4">
                     <div>
-                        <label for="origin" class="block text-sm font-medium text-gray-700">Origen</label>
                         <div class="mt-1 relative">
-                            <input type="text" id="origin" name="origin" class="block w-full pl-3 pr-10 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="Ej: Madrid" required>
+                            <input type="text" id="origin" name="origin" class="block w-full pl-3 pr-10 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="Origen" required>
                             <div class="absolute inset-y-0 right-0 pr-3 flex items-center">
                                 <button type="button" id="locate-btn" class="p-2 text-gray-400 hover:text-indigo-600" title="Usar mi ubicación actual">
                                     <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
@@ -138,9 +137,9 @@
                         </div>
                     </div>
                     <div>
-                        <label for="destination" class="block text-sm font-medium text-gray-700">Destino</label>
+                
                         <div class="mt-1 relative">
-                            <input type="text" id="destination" name="destination" class="block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="Ej: Barcelona" required>
+                            <input type="text" id="destination" name="destination" class="block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="Destino" required>
                             <div id="destination-suggestions" class="absolute z-30 w-full bg-white border border-gray-300 rounded-md mt-1 hidden shadow-lg"></div>
                         </div>
                     </div>
@@ -151,6 +150,11 @@
                                 <option value="Precio Gasoleo A">Diésel</option>
                                 <option value="Precio Gasolina 95 E5">Gasolina 95</option>
                                 <option value="Precio Gasolina 98 E5">Gasolina 98</option>
+                                <option value="Precio Gasoleo Premium">Diésel Premium</option>
+                                <option value="Precio Gasoleo B">Gasoleo B</option>
+                                <option value="Precio Gases licuados del petróleo">GLP</option>
+                                <option value="Precio Gas Natural Comprimido">GNC</option>
+                                <option value="Precio Gas Natural Licuado">GNL</option>
                             </select>
                         </div>
                         <div>
