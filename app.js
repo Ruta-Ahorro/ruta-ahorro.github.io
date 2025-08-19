@@ -298,6 +298,8 @@ async function fetchGasStations() {
                 id: s['IDEESS'], name: s['Rótulo'], address: `${s['Dirección']}, ${s['Localidad']}`,
                 lat: parseFloat(s['Latitud'].replace(',', '.')), lon: parseFloat(s['Longitud (WGS84)'].replace(',', '.')),
                 tipoVenta: s['Tipo Venta'],
+                horario: s['Horario'],
+
                 prices: {
                     'Precio Gasoleo A': parseFloat(s['Precio Gasoleo A'].replace(',', '.')) || null,
                     'Precio Gasolina 95 E5': parseFloat(s['Precio Gasolina 95 E5'].replace(',', '.')) || null,
@@ -483,6 +485,7 @@ function displayResults(results, origin, destination) {
             <div class="flex justify-between items-start">
                 <div class="flex-grow">
                     <p class="font-bold text-indigo-700">Parada ${index + 1}: ${station.name}</p>
+                    <p class="text-sm text-red-600">${station.horario}</p>
                     <p class="text-sm text-gray-600">${station.address}</p>
                     <p class="text-sm text-gray-500">Aprox. en el km ${Math.round(station.distanceFromStart)}</p>
                 </div>
