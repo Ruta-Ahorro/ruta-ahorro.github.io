@@ -4,7 +4,7 @@ importScripts('https://unpkg.com/@turf/turf@6/turf.min.js');
 // The main function for calculating optimal stops. This is moved from the main script.
 function calculateOptimalStops(routeLine, routeDistance, params, allGasStations) {
     // 1. Get params (passed from the main thread)
-    const { fuelType, tankCapacity, currentFuelPercent, consumption, searchRadius, includeRestricted } = params;
+    const { fuelType, tankCapacity, currentFuelPercent, consumption, searchRadius, includeRestricted, finalFuelPercent = 0 } = params;
 
     // 2. Pre-filter stations for massive performance improvement
     
@@ -32,6 +32,8 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations)
 
     // 3. Detailed filtering (narrow-phase)
     const originPoint = turf.point(routeLine.geometry.coordinates[0]);
+    const endPoint = turf.point(routeLine.geometry.coordinates[routeLine.geometry.coordinates.length - 1]);
+
     const stationsOnRoute = candidateStations
         .filter(station => {
             const point = turf.point([station.lon, station.lat]);
@@ -42,7 +44,9 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations)
             const stationPoint = turf.point([station.lon, station.lat]);
             const nearestPointOnRoute = turf.nearestPointOnLine(routeLine, stationPoint);
             const distanceFromStart = turf.distance(originPoint, nearestPointOnRoute, { units: 'kilometers' });
-            return { ...station, distanceFromStart };
+            const distanceFromEnd = turf.distance(endPoint, nearestPointOnRoute, { units: 'kilometers' }); // <-- CORRECCIÓN 1
+
+            return { ...station, distanceFromStart, distanceFromEnd }; // <-- CORRECCIÓN 1
         })
         .sort((a, b) => a.distanceFromStart - b.distanceFromStart);
     
@@ -54,6 +58,7 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations)
     const plannedStops = [];
     let currentDist = 0;
     let currentFuel = tankCapacity * (currentFuelPercent / 100);
+    const desiredFuel = tankCapacity * (finalFuelPercent / 100);
 
     while (currentDist < routeDistance) {
         const range = (currentFuel / consumption) * 100;
@@ -61,7 +66,7 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations)
 
         const reachableStations = stationsOnRoute.filter(s => s.distanceFromStart > currentDist && s.distanceFromStart <= currentDist + range);
         if (reachableStations.length === 0) {
-             throw new Error("No se puede completar la ruta. No hay gasolineras alcanzables en el siguiente tramo.");
+            throw new Error("No se puede completar la ruta. No hay gasolineras alcanzables en el siguiente tramo.");
         }
 
         const nextStop = reachableStations.reduce((cheapest, s) => s.prices[fuelType] < cheapest.prices[fuelType] ? s : cheapest, reachableStations[0]);
@@ -80,7 +85,62 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations)
         currentFuel = tankCapacity;
     }
 
-    // 5. Calculate final costs and return results
+    // 5. Check if we arrive with desired fuel; if not, add an extra stop near the end
+    const remainingDist = routeDistance - currentDist;
+    const fuelUsedToDest = (remainingDist / 100) * consumption;
+    let projectedFuelAtDest = currentFuel - fuelUsedToDest;
+
+    if (projectedFuelAtDest < desiredFuel) {
+        // Máxima distancia desde el destino a la que podemos parar para repostar
+        const maxLastLegDist = ((tankCapacity - desiredFuel) / consumption) * 100;
+        
+        // <-- CORRECCIÓN 1: Filtro mejorado
+        const feasibleLastStops = stationsOnRoute.filter(s => 
+            s.distanceFromStart > currentDist &&
+            s.distanceFromEnd >= maxLastLegDist
+        );
+        
+        if (feasibleLastStops.length === 0) {
+            throw new Error("No se puede completar la ruta con el nivel de combustible deseado en destino. No hay gasolineras adecuadas cerca del final.");
+        }
+
+        const extraStop = feasibleLastStops.reduce((cheapest, s) => s.prices[fuelType] < cheapest.prices[fuelType] ? s : cheapest, feasibleLastStops[0]);
+
+        const distToExtra = extraStop.distanceFromStart - currentDist;
+        const fuelNeededToExtra = (distToExtra / 100) * consumption;
+
+        if (fuelNeededToExtra > currentFuel) {
+            throw new Error("No se puede alcanzar la gasolinera adicional necesaria.");
+        }
+
+        // <-- CORRECCIÓN 2: Lógica de repostaje optimizada
+        const fuelAtExtraStop = currentFuel - fuelNeededToExtra;
+        const fuelForFinalLeg = (extraStop.distanceFromEnd / 100) * consumption;
+        const totalFuelNeeded = desiredFuel + fuelForFinalLeg;
+        let fuelToRefill = totalFuelNeeded - fuelAtExtraStop;
+
+        fuelToRefill = Math.max(0, fuelToRefill);
+        if (fuelAtExtraStop + fuelToRefill > tankCapacity) {
+            fuelToRefill = tankCapacity - fuelAtExtraStop;
+        }
+
+        extraStop.refuelAmount = fuelToRefill;
+        extraStop.refuelCost = fuelToRefill * extraStop.prices[fuelType];
+        
+        plannedStops.push(extraStop);
+        currentFuel = fuelAtExtraStop + fuelToRefill;
+        currentDist = extraStop.distanceFromStart; // Actualizamos la distancia actual
+
+        // Verify the new projection (optional but good practice)
+        const newRemainingDist = routeDistance - currentDist;
+        const newFuelUsedToDest = (newRemainingDist / 100) * consumption;
+        projectedFuelAtDest = currentFuel - newFuelUsedToDest;
+        if (projectedFuelAtDest < desiredFuel - 0.01) { // small tolerance for float errors
+            console.warn("La parada adicional podría no satisfacer el combustible deseado exactamente por errores de redondeo.");
+        }
+    }
+
+    // 6. Calculate final costs and return results
     const optimalCost = plannedStops.reduce((total, stop) => total + stop.refuelCost, 0);
     const totalRefuelAmount = plannedStops.reduce((total, stop) => total + stop.refuelAmount, 0);
     const avgPriceCost = totalRefuelAmount * avgPrice;
@@ -93,7 +153,6 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations)
         maxPriceCost: maxPriceCost
     };
 }
-
 // Set up the event listener for messages from the main thread.
 self.onmessage = function(e) {
     console.log('Worker: Message received from main script');

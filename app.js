@@ -15,6 +15,8 @@ const originInput = document.getElementById('origin');
 const destinationInput = document.getElementById('destination');
 const currentFuelSlider = document.getElementById('current-fuel');
 const currentFuelLabel = document.getElementById('current-fuel-label');
+const finalFuelLabel = document.getElementById('final-fuel-label');
+const finalFuelSlider = document.getElementById('final-fuel');
 const resultsContainer = document.getElementById('results-container');
 const resultsDiv = document.getElementById('results');
 const messageContainer = document.getElementById('message-container');
@@ -51,6 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Event Listeners
     currentFuelSlider.addEventListener('input', e => { currentFuelLabel.textContent = `${e.target.value}%`; });
+    finalFuelSlider.addEventListener('input', e => { finalFuelLabel.textContent = `${e.target.value}%`; });
     form.addEventListener('submit', handleFormSubmit);
     settingsBtn.addEventListener('click', () => settingsPanel.classList.toggle('hidden'));
     searchRadiusSlider.addEventListener('input', e => { searchRadiusLabel.textContent = e.target.value; });
@@ -379,6 +382,7 @@ async function handleFormSubmit(e) {
             fuelType: document.getElementById('fuel-type').value,
             tankCapacity: parseFloat(document.getElementById('tank-capacity').value),
             currentFuelPercent: parseFloat(document.getElementById('current-fuel').value),
+            finalFuelPercent: parseFloat(document.getElementById('final-fuel').value),
             consumption: parseFloat(document.getElementById('consumption').value) || 6.5,
             searchRadius: parseFloat(document.getElementById('search-radius').value),
             includeRestricted: document.getElementById('include-restricted').checked
