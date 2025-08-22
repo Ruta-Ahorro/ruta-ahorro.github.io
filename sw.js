@@ -4,9 +4,12 @@ const CACHE_NAME = 'gas-ruta-cache-v1';
 // The URLs we want to cache. These are the "app shell" files.
 const urlsToCache = [
     '/',
-    '/index.html', // It's good practice to cache index.html explicitly
-    '/worker.js',    // Cache the new worker script
-    'https://cdn.tailwindcss.com',
+ '/index.html',
+    '/app.js',
+    '/worker.js',
+    'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css',
+    'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css',
+    'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
     'https://unpkg.com/@turf/turf@6/turf.min.js',
