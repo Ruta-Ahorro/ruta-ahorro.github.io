@@ -28,8 +28,8 @@ const searchRadiusLabel = document.getElementById('search-radius-label');
 const locateBtn = document.getElementById('locate-btn');
 const originSuggestions = document.getElementById('origin-suggestions');
 const destinationSuggestions = document.getElementById('destination-suggestions');
-const summaryContainer = document.getElementById('summary-container');
-const summaryContent = document.getElementById('summary-content');
+//const summaryContainer = document.getElementById('summary-container');
+//const summaryContent = document.getElementById('summary-content');
 const newRouteBtn = document.getElementById('new-route-btn');
 
 // --- App State ---
@@ -78,7 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function resetUI() {
     // Hide summary and results
-    summaryContainer.classList.add('d-none');
+    //summaryContainer.classList.add('d-none');
     resultsContainer.classList.add('d-none');
     resultsDiv.innerHTML = '';
 
@@ -394,13 +394,13 @@ async function handleFormSubmit(e) {
                 form.classList.add('d-none');
                 const formData = new FormData(form);
                 const fuelTypeEl = form.elements['fuel-type'];
-                summaryContent.innerHTML = `
-                    <p><strong>Origen:</strong> ${formData.get('origin')}</p>
-                    <p><strong>Destino:</strong> ${formData.get('destination')}</p>
-                    <p><strong>Combustible:</strong> ${fuelTypeEl.options[fuelTypeEl.selectedIndex].text}</p>
-                    <p><strong>Consumo:</strong> ${formData.get('consumption')} L/100km</p>
-                `;
-                summaryContainer.classList.remove('d-none');
+               // summaryContent.innerHTML = `
+              //      <p><strong>Origen:</strong> ${formData.get('origin')}</p>
+              //      <p><strong>Destino:</strong> ${formData.get('destination')}</p>
+              //      <p><strong>Combustible:</strong> ${fuelTypeEl.options[fuelTypeEl.selectedIndex].text}</p>
+              //      <p><strong>Consumo:</strong> ${formData.get('consumption')} L/100km</p>
+              //  `;
+              //  summaryContainer.classList.remove('d-none');
             } else {
                 console.error('Main: Error message received from worker.', error);
                 // Custom, more user-friendly error messages
@@ -612,19 +612,35 @@ function showManualRouteOptions(origin, destination) {
 
     // Título
     const title = document.createElement('h3');
-    title.className = "h5 fw-bold text-body-emphasis mb-3";
-    title.textContent = "Selecciona las paradas";
-    resultsDiv.appendChild(title);
+title.className = "h5 fw-bold text-body-emphasis";
+title.textContent = "Selecciona las paradas";
 
+const backToResultsBtn = document.createElement('button');
+backToResultsBtn.id = "back-to-results-btn";
+backToResultsBtn.className = "btn btn-danger  d-flex align-items-center gap-2";
+backToResultsBtn.innerHTML = `<i class="bi bi-arrow-return-left"></i>`;
+
+// 1. Crea un nuevo contenedor para los dos elementos
+const headerContainer = document.createElement('div');
+
+// 2. Añade las clases de Bootstrap para convertirlo en un flexbox
+headerContainer.className = "mb-3 d-flex justify-content-between align-items-center";
+
+// 3. Añade el título y el botón al nuevo contenedor
+headerContainer.appendChild(title);
+headerContainer.appendChild(backToResultsBtn);
+
+// 4. Añade el contenedor completo a tu resultsDiv
+resultsDiv.appendChild(headerContainer);
     // Contenedor de botones de acción
-    const actionContainer = document.createElement('div');
-    actionContainer.className = 'mb-3 d-flex gap-2';
-    actionContainer.innerHTML = `
-        <button id="select-all-btn" class="btn btn-sm btn-outline-primary">Seleccionar Todo</button>
-        <button id="clear-all-btn" class="btn btn-sm btn-outline-secondary">Limpiar Todo</button>
-        <button id="back-to-results-btn" class="btn btn-sm btn-outline-danger">Volver</button>
-    `;
-    resultsDiv.appendChild(actionContainer);
+    //const actionContainer = document.createElement('div');
+    //actionContainer.className = 'mb-3 d-flex gap-2';
+    //actionContainer.innerHTML = `
+    //    <button id="select-all-btn" class="btn btn-sm btn-outline-primary">Seleccionar Todo</button>
+    //    <button id="clear-all-btn" class="btn btn-sm btn-outline-secondary">Limpiar Todo</button>
+    //    <button id="back-to-results-btn" class="btn btn-sm btn-outline-danger">Volver</button>
+   // `;
+    //resultsDiv.appendChild(actionContainer);
 
     // Lista de estaciones con checkboxes
     const stationsContainer = document.createElement('div');
@@ -689,23 +705,23 @@ function showManualRouteOptions(origin, destination) {
     resultsDiv.appendChild(generateContainer);
 
     // Event listeners
-    document.getElementById('select-all-btn').addEventListener('click', () => {
-        document.querySelectorAll('.station-checkbox').forEach(cb => {
-            cb.checked = true;
-            const card = cb.closest('.station-card');
-            updateCardAppearance(card, true);
-        });
-        updateMapMarkers(cheapestStations);
-    });
+//    document.getElementById('select-all-btn').addEventListener('click', () => {
+//        document.querySelectorAll('.station-checkbox').forEach(cb => {
+//            cb.checked = true;
+//            const card = cb.closest('.station-card');
+//            updateCardAppearance(card, true);
+//        });
+//        updateMapMarkers(cheapestStations);
+//    });
 
-    document.getElementById('clear-all-btn').addEventListener('click', () => {
-        document.querySelectorAll('.station-checkbox').forEach(cb => {
-            cb.checked = false;
-            const card = cb.closest('.station-card');
-            updateCardAppearance(card, false);
-        });
-        updateMapMarkers(cheapestStations);
-    });
+//    document.getElementById('clear-all-btn').addEventListener('click', () => {
+//        document.querySelectorAll('.station-checkbox').forEach(cb => {
+//            cb.checked = false;
+//            const card = cb.closest('.station-card');
+//            updateCardAppearance(card, false);
+//        });
+//        updateMapMarkers(cheapestStations);
+//    });
 
     document.getElementById('back-to-results-btn').addEventListener('click', () => {
         // Volver a mostrar los resultados originales
@@ -713,8 +729,8 @@ function showManualRouteOptions(origin, destination) {
             displayResults(currentRouteData.lastResults, origin, destination);
             
             // Restaurar form hidden y summary visible
-            form.classList.add('d-none');
-            summaryContainer.classList.remove('d-none');
+           // form.classList.add('d-none');
+           // summaryContainer.classList.remove('d-none');
         } else {
             // Fallback: recargar la página
             location.reload();
@@ -836,7 +852,7 @@ function displayResults(results, origin, destination) {
     const manualRouteContainer = document.createElement('div');
     manualRouteContainer.className = 'mt-3 d-grid';
     manualRouteContainer.innerHTML = `
-        <button id="manual-route-btn" class="btn btn-outline-primary">
+        <button id="manual-route-btn" class="btn">
             <i class="bi bi-list-check me-2"></i>
             Crear Ruta Manual
         </button>
