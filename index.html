@@ -156,7 +156,7 @@
                 border-bottom: 1px solid var(--bs-border-color);
             }
             #map-container {
-                height: 50vh;
+                height: 40vh;
                 width: 100%;
                 background-color: #e0e0e0; /* Un color de fondo simple */
                 /* O mejor, una imagen estática ligera del mapa */
@@ -174,12 +174,50 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        /* Estilos para las tarjetas de gasolineras */
+        .station-card {
+            transition: all 0.2s ease;
+            position: relative;
+        }
+        
+        .station-card:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        .station-card.selected {
+            border-left: 4px solid var(--bs-primary);
+            background-color: #f8f9ff;
+        }
+        
+        .selection-badge {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background-color: var(--bs-primary);
+            color: white;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        
+        .station-card.selected .selection-badge {
+            opacity: 1;
+        }
     </style>
 </head>
 <body class="bg-light">
 
     <!-- Sidebar for controls and results -->
-    <aside id="sidebar" class="bg-body shadow-lg p-4 d-flex flex-column">
+    <aside id="sidebar" class="bg-body shadow-lg p-3 d-flex flex-column">
         <div class="flex-shrink-0">
             <div class="d-flex justify-content-between align-items-center mb-1">
                 <p class="h4 fw-bold text-body-emphasis">⛽Ahorra en tu viaje </p>
@@ -199,8 +237,8 @@
             <div id="settings-panel" class="d-none bg-body-tertiary p-3 rounded-3 mb-4 border">
                 <h3 class="fw-bold h5 mb-2">Configuración</h3>
                 <div>
-                    <label for="search-radius" class="form-label">Distancia de búsqueda: <span id="search-radius-label">5</span> km</label>
-                    <input type="range" id="search-radius" name="search-radius" min="1" max="25" value="5" class="form-range">
+                    <label for="search-radius" class="form-label">Distancia de búsqueda: <span id="search-radius-label">2</span> km</label>
+                    <input type="range" id="search-radius" name="search-radius" min="1" max="25" value="2" class="form-range">
                     <p class="form-text mt-1">Distancia máxima desde la ruta para buscar gasolineras.</p>
                 </div>
                 <div class="mt-3">
@@ -286,11 +324,11 @@
         </div>
 
         <!-- Results Section -->
-        <div id="results-container" class="mt-4 flex-grow-1 overflow-y-auto d-none">
+        <div id="results-container" class=" flex-grow-1 overflow-y-auto d-none">
             <div id="results" class="space-y-3 ">
                 <!-- Results will be injected here -->
             </div>
-            <div id="summary-container" class="d-none mt-4">
+            <div id="summary-container" class="d-none">
                  <button type="button" id="new-route-btn" class="btn btn-secondary w-100 fw-bold py-2 mt-3">
                  Nueva Ruta
                 </button>

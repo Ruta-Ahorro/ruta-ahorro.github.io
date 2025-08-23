@@ -513,6 +513,81 @@ function getCheapestStationsOnRoute(routeLine, params, allGasStations, origin, d
     return stationsOnRoute;
 }
 
+// Función para actualizar marcadores basado en selección
+function updateMapMarkers(stations) {
+    stationMarkers.clearLayers();
+    
+    const selectedCheckboxes = document.querySelectorAll('.station-checkbox:checked');
+    
+    selectedCheckboxes.forEach(checkbox => {
+        const index = parseInt(checkbox.value);
+        const station = stations[index];
+        
+        const markerColor = '#4138c2'; // Color del tema de la app
+        const markerHtml = `<div style="background-color: ${markerColor}; color: white; border-radius: 50%; width: 1.8rem; height: 1.8rem; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3); font-size: 0.9rem;">${index + 1}</div>`;
+        const icon = L.divIcon({ html: markerHtml, className: '', iconSize: [28, 28], iconAnchor: [14, 14] });
+
+        L.marker([station.lat, station.lon], { icon })
+            .bindPopup(`<b>${station.name}</b><br>${station.address}<br>Precio: ${station.prices[currentRouteData.params.fuelType].toFixed(3)} €/L<br>Km ${Math.round(station.distanceFromStart)} desde origen`)
+            .addTo(stationMarkers);
+    });
+    
+    // Actualizar contador
+    updateSelectionCounter(selectedCheckboxes.length);
+}
+
+// Función para actualizar el contador de selecciones
+function updateSelectionCounter(count) {
+    const counter = document.getElementById('selection-counter');
+    const routeBtn = document.getElementById('generate-manual-route-btn');
+    
+    if (counter) {
+        counter.textContent = `${count} gasolinera${count !== 1 ? 's' : ''} seleccionada${count !== 1 ? 's' : ''}`;
+    }
+    
+    if (routeBtn) {
+        if (count === 0) {
+            routeBtn.disabled = true;
+            routeBtn.classList.add('disabled');
+        } else {
+            routeBtn.disabled = false;
+            routeBtn.classList.remove('disabled');
+        }
+    }
+}
+
+// Función para actualizar apariencia de la tarjeta
+function updateCardAppearance(card, isSelected) {
+    if (isSelected) {
+        card.classList.add('selected');
+        // Actualizar el orden de selección
+        updateSelectionOrder();
+    } else {
+        card.classList.remove('selected');
+        // Actualizar el orden de selección
+        updateSelectionOrder();
+    }
+}
+
+// Función para actualizar el orden de selección en los badges
+function updateSelectionOrder() {
+    const selectedCheckboxes = document.querySelectorAll('.station-checkbox:checked');
+    
+    // Limpiar todos los badges
+    document.querySelectorAll('.selection-badge').forEach(badge => {
+        badge.textContent = '';
+    });
+    
+    // Asignar números de orden
+    selectedCheckboxes.forEach((checkbox, orderIndex) => {
+        const stationIndex = parseInt(checkbox.value);
+        const badge = document.getElementById(`badge-${stationIndex}`);
+        if (badge) {
+            badge.textContent = orderIndex + 1;
+        }
+    });
+}
+
 function showManualRouteOptions(origin, destination) {
     if (!currentRouteData) {
         alert('No hay datos de ruta disponibles');
@@ -538,7 +613,7 @@ function showManualRouteOptions(origin, destination) {
     // Título
     const title = document.createElement('h3');
     title.className = "h5 fw-bold text-body-emphasis mb-3";
-    title.textContent = "Selecciona tus paradas (15 más baratas)";
+    title.textContent = "Selecciona las paradas";
     resultsDiv.appendChild(title);
 
     // Contenedor de botones de acción
@@ -557,17 +632,21 @@ function showManualRouteOptions(origin, destination) {
     
     cheapestStations.forEach((station, index) => {
         const card = document.createElement('div');
-        card.className = 'card card-body mb-2 bg-body-tertiary';
+        card.className = 'card card-body mb-2 bg-body-tertiary station-card';
+        card.style.cursor = 'pointer';
+        card.style.paddingTop = '2px';
+        card.style.paddingBottom = '2px';
+        card.setAttribute('data-station-index', index);
         card.innerHTML = `
+            <div class="selection-badge" id="badge-${index}"></div>
             <div class="d-flex align-items-start">
                 <div class="form-check me-3 mt-1">
                     <input class="form-check-input station-checkbox" type="checkbox" value="${index}" id="station-${index}">
                 </div>
                 <div class="flex-grow-1">
-                    <label class="form-check-label fw-bold" for="station-${index}" style="color:#4138c2;">${station.name}</label>
-                    <p class="small text-danger fw-bold mb-1">${station.horario}</p>
-                    <p class="small text-muted mb-1">${station.address}</p>
-                    <p class="small text-muted">Km ${Math.round(station.distanceFromStart)} desde origen</p>
+                    <label class="form-check-label fw-bold" for="station-${index}" style="color:#b549ff;">${station.name}</label>
+                    <p class="small text-danger fw-bold mb-1">${station.horario}
+                    <span class="small text-muted">Km ${Math.round(station.distanceFromStart)}</span></p>
                 </div>
                 <div class="text-end ms-2">
                     <p class="h6 fw-bold text-body-emphasis mb-0">${station.prices[currentRouteData.params.fuelType].toFixed(3)} €/L</p>
@@ -575,6 +654,24 @@ function showManualRouteOptions(origin, destination) {
             </div>
         `;
         stationsContainer.appendChild(card);
+
+        // Añadir event listener para hacer clic en la tarjeta
+        card.addEventListener('click', (e) => {
+            // Evitar doble activación si se hace clic directamente en el checkbox
+            if (e.target.type !== 'checkbox') {
+                const checkbox = card.querySelector('.station-checkbox');
+                checkbox.checked = !checkbox.checked;
+                updateMapMarkers(cheapestStations);
+                updateCardAppearance(card, checkbox.checked);
+            }
+        });
+
+        // Event listener para el checkbox
+        const checkbox = card.querySelector('.station-checkbox');
+        checkbox.addEventListener('change', () => {
+            updateMapMarkers(cheapestStations);
+            updateCardAppearance(card, checkbox.checked);
+        });
     });
     
     resultsDiv.appendChild(stationsContainer);
@@ -585,18 +682,29 @@ function showManualRouteOptions(origin, destination) {
     generateContainer.innerHTML = `
         <button id="generate-manual-route-btn" class="btn btn-primary">
             <i class="bi bi-google me-2"></i>
-            Abrir Ruta Seleccionada en Google Maps
+            <span id="route-btn-text">Abrir Ruta Seleccionada en Google Maps</span>
         </button>
+        <small class="text-muted mt-2 text-center" id="selection-counter">0 gasolineras seleccionadas</small>
     `;
     resultsDiv.appendChild(generateContainer);
 
     // Event listeners
     document.getElementById('select-all-btn').addEventListener('click', () => {
-        document.querySelectorAll('.station-checkbox').forEach(cb => cb.checked = true);
+        document.querySelectorAll('.station-checkbox').forEach(cb => {
+            cb.checked = true;
+            const card = cb.closest('.station-card');
+            updateCardAppearance(card, true);
+        });
+        updateMapMarkers(cheapestStations);
     });
 
     document.getElementById('clear-all-btn').addEventListener('click', () => {
-        document.querySelectorAll('.station-checkbox').forEach(cb => cb.checked = false);
+        document.querySelectorAll('.station-checkbox').forEach(cb => {
+            cb.checked = false;
+            const card = cb.closest('.station-card');
+            updateCardAppearance(card, false);
+        });
+        updateMapMarkers(cheapestStations);
     });
 
     document.getElementById('back-to-results-btn').addEventListener('click', () => {
@@ -637,18 +745,11 @@ function showManualRouteOptions(origin, destination) {
         window.open(googleMapsUrl, '_blank', 'noopener,noreferrer');
     });
 
-    // Limpiar marcadores del mapa y añadir los nuevos
+    // Inicializar mapa sin marcadores (se añadirán cuando se seleccionen)
     stationMarkers.clearLayers();
     
-    cheapestStations.forEach((station, index) => {
-        const markerColor = '#28a745'; // Verde para indicar que es seleccionable
-        const markerHtml = `<div style="background-color: ${markerColor}; color: white; border-radius: 50%; width: 1.5rem; height: 1.5rem; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3); font-size: 0.8rem;">${index + 1}</div>`;
-        const icon = L.divIcon({ html: markerHtml, className: '', iconSize: [24, 24], iconAnchor: [12, 12] });
-
-        L.marker([station.lat, station.lon], { icon })
-            .bindPopup(`<b>${station.name}</b><br>${station.address}<br>Precio: ${station.prices[currentRouteData.params.fuelType].toFixed(3)} €/L<br>Km ${Math.round(station.distanceFromStart)} desde origen`)
-            .addTo(stationMarkers);
-    });
+    // Inicializar contador
+    updateSelectionCounter(0);
 }
 
 function displayResults(results, origin, destination) {
@@ -689,14 +790,14 @@ function displayResults(results, origin, destination) {
 
         if (savingsVsAvg > 0 || savingsVsMax > 0) {
             const savingsContainer = document.createElement('div');
-            savingsContainer.className = 'mt-3 p-3 bg-success-subtle border border-success-subtle rounded-3 mb-3';
+            savingsContainer.className = 'mt-3 p-2 bg-success-subtle border border-success-subtle rounded-3 mb-1';
             savingsContainer.innerHTML = `
-                <h4 class="h6 fw-bold text-success-emphasis mb-2">Resumen de Ahorro</h4>
+                
                 <p class="text-sm text-success-emphasis">
-                    Ahorras <span class="fw-bold">${savingsVsAvg.toFixed(2)}€</span> en comparación con el precio medio de la ruta.
+                    <span class="fw-bold">Ahorro: ${savingsVsAvg.toFixed(2)}€</span> comparado con la media.
                 </p>
                 <p class="text-sm text-success-emphasis mt-1">
-                    Ahorras <span class="fw-bold">${savingsVsMax.toFixed(2)}€</span> en comparación con el más caro.
+                     <span class="fw-bold">Ahorro: ${savingsVsMax.toFixed(2)}€</span> comparado con el máximo.
                 </p>
             `;
             resultsDiv.appendChild(savingsContainer);
