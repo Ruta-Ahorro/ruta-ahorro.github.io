@@ -641,7 +641,16 @@ resultsDiv.appendChild(headerContainer);
     //    <button id="back-to-results-btn" class="btn btn-sm btn-outline-danger">Volver</button>
    // `;
     //resultsDiv.appendChild(actionContainer);
-
+        const generateContainer = document.createElement('div');
+    generateContainer.className = 'mt-3 d-grid';
+    generateContainer.innerHTML = `
+        <button id="generate-manual-route-btn" class="btn btn-primary">
+            <i class="bi bi-google me-2"></i>
+            <span id="route-btn-text">Abrir Ruta en Google Maps</span>
+        </button>
+        <small class="text-muted mt-2 text-center" id="selection-counter">0 gasolineras seleccionadas</small>
+    `;
+    resultsDiv.appendChild(generateContainer);
     // Lista de estaciones con checkboxes
     const stationsContainer = document.createElement('div');
     stationsContainer.id = 'manual-stations-container';
@@ -693,16 +702,7 @@ resultsDiv.appendChild(headerContainer);
     resultsDiv.appendChild(stationsContainer);
 
     // Botón para generar ruta
-    const generateContainer = document.createElement('div');
-    generateContainer.className = 'mt-3 d-grid';
-    generateContainer.innerHTML = `
-        <button id="generate-manual-route-btn" class="btn btn-primary">
-            <i class="bi bi-google me-2"></i>
-            <span id="route-btn-text">Abrir Ruta Seleccionada en Google Maps</span>
-        </button>
-        <small class="text-muted mt-2 text-center" id="selection-counter">0 gasolineras seleccionadas</small>
-    `;
-    resultsDiv.appendChild(generateContainer);
+
 
     // Event listeners
 //    document.getElementById('select-all-btn').addEventListener('click', () => {
@@ -796,7 +796,7 @@ function displayResults(results, origin, destination) {
         buttonContainer.innerHTML = `
             <a href="${googleMapsUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-primary d-flex align-items-center justify-content-center">
                 <i class="bi bi-google me-2"></i>
-                Abrir Ruta Completa en Google Maps
+                Abrir Ruta en Google Maps
             </a>
         `;
         resultsDiv.appendChild(buttonContainer);
@@ -852,7 +852,7 @@ function displayResults(results, origin, destination) {
     const manualRouteContainer = document.createElement('div');
     manualRouteContainer.className = 'mt-3 d-grid';
     manualRouteContainer.innerHTML = `
-        <button id="manual-route-btn" class="btn">
+        <button id="manual-route-btn" class="btn btn-secondary">
             <i class="bi bi-list-check me-2"></i>
             Crear Ruta Manual
         </button>
