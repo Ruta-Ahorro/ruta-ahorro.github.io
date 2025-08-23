@@ -4,7 +4,7 @@ importScripts('https://unpkg.com/@turf/turf@6/turf.min.js');
 // The main function for calculating optimal stops. This is moved from the main script.
 function calculateOptimalStops(routeLine, routeDistance, params, allGasStations) {
     // 1. Get params (passed from the main thread)
-    const { fuelType, tankCapacity, currentFuelPercent, consumption, searchRadius, includeRestricted, finalFuelPercent = 0 } = params;
+    const { fuelType, tankCapacity, currentFuelPercent, consumption, searchRadius, includeRestricted, finalFuelPercent = 0, } = params;
 
     // 2. Pre-filter stations for massive performance improvement
     

@@ -416,7 +416,8 @@ async function handleFormSubmit(e) {
             finalFuelPercent: parseFloat(document.getElementById('final-fuel').value),
             consumption: parseFloat(document.getElementById('consumption').value) || 6.5,
             searchRadius: parseFloat(document.getElementById('search-radius').value),
-            includeRestricted: document.getElementById('include-restricted').checked
+            includeRestricted: document.getElementById('include-restricted').checked,
+            algorithm: document.querySelector('input[name="algorithm"]:checked').value
         };
 
         console.log('Main: Posting message to worker.');
