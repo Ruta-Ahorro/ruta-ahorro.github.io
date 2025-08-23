@@ -6,6 +6,7 @@
     <title>Optimizador de Rutas de Gasolina</title>
     <meta name="description" content="Encuentra las gasolineras más baratas en tu ruta y planifica tus paradas para ahorrar dinero en cada viaje.">
 
+    <!-- Preconnect to key origins for performance -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://corsproxy.io">
@@ -14,222 +15,147 @@
     <link rel="preconnect" href="https://b.tile.openstreetmap.org" crossorigin>
     <link rel="preconnect" href="https://c.tile.openstreetmap.org" crossorigin>
 
-    <meta name="theme-color" content="#4138c2"/>
+    <!-- PWA Manifest and Theme Color -->
+    <meta name="theme-color" content="#4f46e5"/>
     <link rel="apple-touch-icon" href="https://placehold.co/192x192/4f46e5/white?text=⛽️">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="GasRuta">
     <link rel="manifest" href="/manifest.json">
     
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <!-- Scripts (deferred to be non-blocking) -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous" defer></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script>
     <script src='https://unpkg.com/@turf/turf@6/turf.min.js' defer></script>
 
+    <!-- LeafletJS for Map (synchronous) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     
+    <!-- Google Fonts (asynchronous) -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
     <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet"></noscript>
 
-    <style>
-:root {
-  --bs-primary: #4138c2;   /* Tu nuevo color primario, por ejemplo, un naranja */
-  --bs-secondary: #C0C0C0; /* Tu nuevo color secundario, por ejemplo, un gris plata */
+ <style>
 
+        /* Custom styles for the app */
+        :root {
+            --bs-body-font-family: 'Inter', sans-serif;
 
-  /* Puedes cambiar otros colores del tema si quieres */
-  --bs-success: #28a745;
-  --bs-info: #17a2b8;
-  --bs-warning: #ffc107;
-  --bs-danger: #dc3545;
-  --bs-light: #f8f9fa;
-  --bs-dark: #343a40;
-}
-.btn-primary {
-  --bs-btn-bg: #4f46e5;          /* Tu nuevo color de fondo para el botón */
-  --bs-btn-border-color: #4f46e5; /* El mismo color para el borde */
-  --bs-btn-hover-bg: #4338ca;      /* Color al pasar el ratón */
-  --bs-btn-hover-border-color: #4338ca;
-  --bs-btn-active-bg: #3730a3;     /* Color al hacer clic */
-  --bs-btn-active-border-color: #3730a3;
-}
+            /* Accent color */
+            --app-accent: #4138c2;
+            --bs-primary: #4138c2;
+            --bs-primary-rgb: 65,56,194;
 
-.btn-secondary {
-    --bs-btn-bg: #6c757d;
-    --bs-btn-border-color: #6c757d;
-    --bs-btn-hover-bg: #5c636a;
-    --bs-btn-hover-border-color: #565e64;
-    --bs-btn-active-bg: #52575c;
-    --bs-btn-active-border-color: #4c5257;
-}
-.form-check-input {
-    accent-color: var(--bs-primary);
-    border-color: var(--bs-secondary);
-}
-        /* Estilo para las barras deslizantes */
-input[type="range"].form-range::-webkit-slider-runnable-track {
-    background: var(--bs-secondary); /* Fondo de la barra en gris oscuro */
-}
-
-input[type="range"].form-range::-moz-range-track {
-    background: var(--bs-secondary);
-}
-
-input[type="range"].form-range::-webkit-slider-thumb {
-    background: var(--bs-primary); /* El pulgar de la barra en color primario */
-    border: 1px solid var(--bs-primary);
-}
-@media (prefers-color-scheme: dark) {
-    :root {
-        --bs-primary: #8faaff;
-        --bs-secondary: #222;
-        --bs-success: #4caf50;
-        --bs-info: #2196f3;
-        --bs-warning: #ffb300;
-        --bs-danger: #f44336;
-        --bs-light: #222;
-        --bs-dark: #f8f9fa;
-        color-scheme: dark;
-    }
-    body, .bg-light, .card.bg-white, .card-body.bg-white {
-        background-color: #181a1b !important;
-        color: #e0e0e0 !important;
-    }
-    .form-control, .form-select, .form-range {
-        background-color: #222 !important;
-        color: #e0e0e0 !important;
-        border-color: #444 !important;
-    }
-    .border-end {
-        border-color: #333 !important;
-    }
-    .btn-primary {
-        --bs-btn-bg: #8faaff;
-        --bs-btn-border-color: #8faaff;
-        --bs-btn-hover-bg: #6c8edb;
-        --bs-btn-hover-border-color: #6c8edb;
-        --bs-btn-active-bg: #4f6cb3;
-        --bs-btn-active-border-color: #4f6cb3;
-    }
-    .btn-secondary {
-        --bs-btn-bg: #444;
-        --bs-btn-border-color: #444;
-        --bs-btn-hover-bg: #333;
-        --bs-btn-hover-border-color: #222;
-        --bs-btn-active-bg: #222;
-        --bs-btn-active-border-color: #111;
-    }
-}
-
-body.dark-mode {
-    background-color: #181a1b !important;
-    color: #e0e0e0 !important;
-}
-.dark-mode .bg-light, .dark-mode .card.bg-white, .dark-mode .card-body.bg-white {
-    background-color: #222 !important;
-    color: #e0e0e0 !important;
-}
-.dark-mode .form-control, .dark-mode .form-select, .dark-mode .form-range {
-    background-color: #222 !important;
-    color: #e0e0e0 !important;
-    border-color: #444 !important;
-}
-.dark-mode .border-end {
-    border-color: #333 !important;
-}
-.dark-mode .btn-primary {
-    --bs-btn-bg: #8faaff;
-    --bs-btn-border-color: #8faaff;
-    --bs-btn-hover-bg: #6c8edb;
-    --bs-btn-hover-border-color: #6c8edb;
-    --bs-btn-active-bg: #4f6cb3;
-    --bs-btn-active-border-color: #4f6cb3;
-}
-.dark-mode .btn-secondary {
-    --bs-btn-bg: #444;
-    --bs-btn-border-color: #444;
-    --bs-btn-hover-bg: #333;
-    --bs-btn-hover-border-color: #222;
-    --bs-btn-active-bg: #222;
-    --bs-btn-active-border-color: #111;
-}
-
-/* Mejores contrastes para componentes dinámicos */
-.dark-mode .text-muted {
-    color: #bdbdbd !important;
-}
-.dark-mode .list-group-item,
-.dark-mode .list-group-item-action {
-    background-color: #1e2223 !important;
-    color: #e6e6e6 !important;
-    border-color: #2b2f30 !important;
-}
-.dark-mode .alert {
-    background-color: #263238 !important;
-    color: #e6e6e6 !important;
-    border-color: #37474f !important;
-}
-.dark-mode .card {
-    background-color: #202426 !important;
-    color: #e6e6e6 !important;
-}
-.dark-mode .sticky-top.bg-light {
-    background-color: #202426 !important;
-}
-.dark-mode .form-label, .dark-mode label {
-    color: #d0d0d0 !important;
-}
-.dark-mode .btn-outline-secondary {
-    color: #e0e0e0 !important;
-    border-color: #444 !important;
-}
-.dark-mode .bi {
-    color: #e0e0e0 !important;
-}
-
-/* Ajustes para popups generados por Leaflet */
-.dark-mode .leaflet-popup-content-wrapper {
-    background: #222 !important;
-    color: #e6e6e6 !important;
-}
-.dark-mode .leaflet-container {
-    background: #111;
-}
-
-input[type="range"].form-range::-moz-range-thumb {
-    background: var(--bs-primary);
-    border: 1px solid var(--bs-primary);
-}
-        html, body {
-            height: 100%;
+            /* Button / control fallbacks */
+            --bs-btn-bg: var(--bs-primary);
+            --bs-btn-border-color: var(--bs-primary);
+            --bs-link-color: var(--bs-primary);
+            
         }
-        .main-row {
-            height: 100%;
+        .mi-parrafo {
+          font-size: 0.75rem;
+          padding-left: 4px;
+          padding-right: 4px;
+
         }
-        #sidebar {
-            height: 100%;
-            overflow-y: auto;
+        /* Ensure primary-based components pick the custom accent */
+        .btn-primary {
+            background-color: var(--bs-primary) !important;
+            border-color: var(--bs-primary) !important;
+            color: #fff;
         }
-        #map-container, #map {
-            height: 100%;
-            padding: 0;
+        .btn-primary:hover,
+        .btn-primary:focus {
+            background-color: color-mix(in srgb, var(--bs-primary) 85%, black) !important;
+            border-color: color-mix(in srgb, var(--bs-primary) 85%, black) !important;
+            box-shadow: 0 0 0 .25rem rgba(var(--bs-primary-rgb), .15);
         }
-        @media (max-width: 768px) {
-            #sidebar {
-                height: 60vh;
-            }
-            #map-container {
-                height: 40vh;
-            }
+
+
+
+        /* Form controls that use accent when active/checked */
+        .form-check-input:checked {
+            background-color: var(--bs-primary);
+            border-color: var(--bs-primary);
         }
+        .form-range::-webkit-slider-thumb {
+            background: var(--bs-primary);
+            border: 2px solid #fff;
+        }
+        .form-range::-moz-range-thumb {
+            background: var(--bs-primary);
+            border: 2px solid #fff;
+        }
+
+        /* Loader accent */
         .loader {
             border: 5px solid #f3f3f3;
-            border-top: 5px solid var(--bs-primary);
+            border-top: 5px solid var(--app-accent);
             border-radius: 50%;
             width: 50px;
             height: 50px;
             animation: spin 1s linear infinite;
+        }
+
+        /* Preserve original rules below */
+        html[data-bs-theme="dark"] {
+            --bs-body-bg: #121212;
+            --bs-tertiary-bg: #2d2d2d; 
+            --bs-body-color: #e0e0e0;
+            --bs-border-color: #424242;
+        }
+        p {
+            margin-bottom: 1px;
+        }
+
+        body {
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #sidebar {
+            width: 400px;
+            min-width: 350px;
+            height: 100%;
+            overflow-y: auto;
+            z-index: 20;
+            transition: transform 0.3s ease-in-out;
+        }
+        #map {
+         height: 100%;
+            width: 100%;
+            z-index: 10;
+    /* Añade el placeholder aquí directamente */
+            background-color: #e0e0e0; 
+    background-image: url('/mapa-placeholder.png');
+    background-size: cover;
+    background-position: center;
+}
+        @media (max-width: 768px) {
+            body {
+                flex-direction: column;
+            }
+            #sidebar {
+                width: 100%;
+                height: 65vh; /* Adjust height for mobile */
+                min-width: 100%;
+                border-bottom: 1px solid var(--bs-border-color);
+            }
+            #map-container {
+                height: 50vh;
+                width: 100%;
+                background-color: #e0e0e0; /* Un color de fondo simple */
+                /* O mejor, una imagen estática ligera del mapa */
+                background-image: url('/mapa-placeholder.png');
+                background-size: cover;
+                background-position: center;
+            }
+
+        }
+        .leaflet-popup-content-wrapper {
+            border-radius: 8px;
         }
         @keyframes spin {
             0% { transform: rotate(0deg); }
@@ -237,134 +163,138 @@ input[type="range"].form-range::-moz-range-thumb {
         }
     </style>
 </head>
-<body>
-    <div class="container-fluid vh-100">
-        <div class="row main-row">
-            <aside id="sidebar" class="col-md-4 col-lg-3 bg-light p-3 border-end">
-                <div class="d-flex flex-column h-100">
-                    <div>
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <h1 class="h5 fw-bold">⛽ Ahorra en tu viaje</h1>
-                                <button id="settings-btn" class="btn btn-sm btn-outline-secondary me-2" title="Abrir configuración">
-                                    <i class="bi bi-gear-fill"></i>
-                                </button>
-                                <button id="darkmode-toggle" class="btn btn-sm btn-outline-secondary" title="Modo claro/oscuro">
-                                    <i class="bi bi-moon-stars-fill"></i>
-                                </button>
-                        </div>
-                        <p class="text-muted small">Encuentra las gasolineras más baratas en tu viaje.</p>
-                    </div>
+<body class="bg-light">
 
-                    <div id="settings-panel" class="d-none card card-body bg-white mb-3">
-                        <h3 class="h6 mb-2">Configuración</h3>
-                        <div class="mb-3">
-                            <label for="search-radius" class="form-label small">Distancia de búsqueda: <span id="search-radius-label">5</span> km</label>
-                            <input type="range" id="search-radius" name="search-radius" min="1" max="25" value="5" class="form-range">
-                        </div>
-                        <div class="mb-3">
-                            <div class="form-check">
-                                <input type="checkbox" id="include-restricted" name="include-restricted" class="form-check-input">
-                                <label for="include-restricted" class="form-check-label small">Incluir gasolineras restringidas</label>
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label small">Algoritmo de cálculo</label>
-                            <div class="d-flex flex-wrap gap-3">
-                                <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="radio" id="algo-greedy" name="algorithm" value="greedy" checked>
-                                    <label class="form-check-label" for="algo-greedy">Codicioso (Greedy)</label>
-                                </div>
-                                <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="radio" id="algo-dynamic" name="algorithm" value="dynamic">
-                                    <label class="form-check-label" for="algo-dynamic">Programación Dinámica</label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+    <!-- Sidebar for controls and results -->
+    <aside id="sidebar" class="bg-body shadow-lg p-4 d-flex flex-column">
+        <div class="flex-shrink-0">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <p class="h4 fw-bold text-body-emphasis">⛽Ahorra en tu viaje </p>
+                <div class="d-flex align-items-center">
 
-                    <form id="route-form" class="flex-grow-1 d-flex flex-column">
-<div class="form-floating mb-3">
-    <input type="text" class="form-control" id="origin" placeholder="Origen" required>
-    <label for="origin">Origen</label>
-</div>
-<!-- Contenedor de sugerencias para origen -->
-<div id="origin-suggestions" class="list-group d-none mb-2" style="max-height:200px; overflow:auto; z-index:1060;"></div>
-<div class="form-floating mb-3">
-    <input type="text" class="form-control" id="destination" placeholder="Destino" required>
-    <label for="destination">Destino</label>
-</div>
-<!-- Contenedor de sugerencias para destino -->
-<div id="destination-suggestions" class="list-group d-none mb-2" style="max-height:200px; overflow:auto; z-index:1060;"></div>
-                        <div class="row g-2 mb-3">
-                            <div class="col-4">
-                                <label for="fuel-type" class="form-label">Combustible</label>
-                                <select id="fuel-type" name="fuel-type" class="form-select">
-                                    <option value="Precio Gasoleo A">Diésel</option>
-                                    <option value="Precio Gasolina 95 E5">Gasolina 95</option>
-                                    <option value="Precio Gasolina 98 E5">Gasolina 98</option>
-                                    <option value="Precio Gasoleo Premium">Diésel Premium</option>
-                                    <option value="Precio Gasoleo B">Gasoleo B</option>
-                                    <option value="Precio Gases licuados del petróleo">GLP</option>
-                                    <option value="Precio Gas Natural Comprimido">GNC</option>
-                                    <option value="Precio Gas Natural Licuado">GNL</option>
-                                </select>
-                            </div>
-                            <div class="col-4">
-                                <label for="consumption" class="form-label">Consumo (L/100km)</label>
-                                <input type="number" id="consumption" name="consumption" value="6.5" step="0.1" class="form-control">
-                            </div>
-                            <div class="col-4">
-                            <label for="tank-capacity" class="form-label">Depósito (L)</label>
+                    <button id="settings-btn" class="btn btn-light" title="Abrir configuración">
+                        <i class="bi bi-gear-fill"></i>
+                    </button>
+                                        <button id="theme-toggle" class=" border-0 bg-transparent p-2 me-2" title="Cambiar modo oscuro/claro">
+                        <i class="bi bi-moon-stars-fill fs-5"></i>
+                    </button>
+                </div>
+            </div>
+            <p class="text-muted mb-3">Encuentra las gasolineras más baratas.</p>
+            
+            <!-- Settings Panel (hidden by default) -->
+            <div id="settings-panel" class="d-none bg-body-tertiary p-3 rounded-3 mb-4 border">
+                <h3 class="fw-bold h5 mb-2">Configuración</h3>
+                <div>
+                    <label for="search-radius" class="form-label">Distancia de búsqueda: <span id="search-radius-label">5</span> km</label>
+                    <input type="range" id="search-radius" name="search-radius" min="1" max="25" value="5" class="form-range">
+                    <p class="form-text mt-1">Distancia máxima desde la ruta para buscar gasolineras.</p>
+                </div>
+                <div class="mt-3">
+                    <div class="form-check">
+                        <input type="checkbox" id="include-restricted" name="include-restricted" class="form-check-input">
+                        <label for="include-restricted" class="form-check-label">Incluir gasolineras restringidas</label>
+                    </div>
+                    <p class="form-text mt-1">Estas vienen marcadas en la llamada como "Tipo Venta": "R" y son para uso de cooperativas, flotas, etc.</p>
+                </div>
+            </div>
+
+            <form id="route-form">
+                <div class="mb-2 position-relative">
+                    <div class="input-group">
+                        <input type="text" id="origin" name="origin" class="form-control" placeholder="Origen" required>
+                        <button type="button" id="locate-btn" class="btn btn-outline-secondary" title="Usar mi ubicación actual">
+                            <i class="bi bi-geo-alt-fill"></i>
+                        </button>
+                    </div>
+                    <div id="origin-suggestions" class="position-absolute z-3 w-100 bg-body border border-secondary-subtle rounded-bottom mt-1 d-none shadow-lg list-group"></div>
+                </div>
+                <div class="mb-2 position-relative">
+                    <input type="text" id="destination" name="destination" class="form-control" placeholder="Destino" required>
+                    <div id="destination-suggestions" class="position-absolute z-3 w-100 bg-body border border-secondary-subtle rounded-bottom mt-1 d-none shadow-lg list-group"></div>
+                </div>
+                <div class="row g-3 mb-2">
+                    <div class="col-5">
+                        <label for="fuel-type" class="form-label">Combustible</label>
+                        <select id="fuel-type" name="fuel-type" class="form-select">
+                            <option value="Precio Gasoleo A">Diésel</option>
+                            <option value="Precio Gasolina 95 E5">Gasolina 95</option>
+                            <option value="Precio Gasolina 98 E5">Gasolina 98</option>
+                            <option value="Precio Gasoleo Premium">Diésel Premium</option>
+                            <option value="Precio Gasoleo B">Gasoleo B</option>
+                            <option value="Precio Gases licuados del petróleo">GLP</option>
+                            <option value="Precio Gas Natural Comprimido">GNC</option>
+                            <option value="Precio Gas Natural Licuado">GNL</option>
+                        </select>
+                    </div>
+                    <div class="col-3">
+                        <label for="tank-capacity" class="form-label">Depósito</label>
+                        <div class="input-group">
                             <input type="number" id="tank-capacity" name="tank-capacity" value="55" class="form-control">
-                        </div>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label for="current-fuel" class="form-label">Combustible actual: <span id="current-fuel-label">25%</span></label>
-                            <input type="range" id="current-fuel" name="current-fuel" min="0" max="100" value="25" class="form-range">
-                        </div>
-                        <div class="mb-3">
-                            <label for="final-fuel" class="form-label">Combustible final: <span id="final-fuel-label">25%</span></label>
-                            <input type="range" id="final-fuel" name="final-fuel" min="0" max="90" value="25" class="form-range">
-                        </div>
-                        <div class="mt-auto pt-2">
-                            <button type="submit" id="search-button" class="btn btn-primary w-100">
-                                Buscar Paradas Inteligentes
-                            </button>
-                        </div>
-                    </form>
-
-                    <div id="results-container" class="flex-grow-1 overflow-auto d-none">
-
-                        <div id="results" class="list-group">
-                            </div>
-                            <div id="summary-container" class="d-none sticky-top bg-light pt-2">
-                            <div id="summary-content" class="card card-body mb-2">
-                                </div>
-                            <button type="button" id="new-route-btn" class="btn btn-secondary w-100 mb-2">
-                                Nueva Ruta
-                            </button>
+                            <span class="input-group-text mi-parrafo pl-1">L</span>
                         </div>
                     </div>
-                    <div id="message-container" class="d-none flex-grow-1 d-flex align-items-center justify-content-center text-center">
-                        <div id="message-content">
-                            </div>
+                    <div class="col-4">
+                        <label for="consumption" class="form-label">Consumo</label>
+                        <div class="input-group">
+                            <input type="number" id="consumption" name="consumption" value="6.5" step="0.1" class="form-control" title="Consumo medio en L/100km">
+                            <span class="input-group-text mi-parrafo pl-1">L/100</span>
+                        </div>
                     </div>
                 </div>
-            </aside>
+                <div class="mb-2">
+                    <label for="current-fuel" class="form-label">Combustible actual: <span id="current-fuel-label">25%</span></label>
+                    <input type="range" id="current-fuel" name="current-fuel" min="0" max="100" value="25" class="form-range">
+                </div>
+                <div class="mb-2">
+                    <label for="final-fuel" class="form-label">Combustible final: <span id="final-fuel-label">25%</span></label>
+                    <input type="range" id="final-fuel" name="final-fuel" min="0" max="90" value="25" class="form-range">
+                </div>
+                <button type="submit" id="search-button" class="btn btn-primary w-100 fw-bold py-2 mt-3">
+                    Buscar Paradas Inteligentes
+                </button>
+            </form>
 
-            <main id="map-container" class="col-md-8 col-lg-9 p-0">
-                <div id="map" class="w-100 h-100"></div>
-            </main>
+            <!-- Summary Section (hidden by default) -->
+
         </div>
-    </div>
 
-    <div id="spinner-overlay" class="d-none position-fixed top-0 start-0 vw-100 vh-100 d-flex align-items-center justify-content-center" style="background-color: rgba(0, 0, 0, 0.5); z-index: 1060;">
+        <!-- Results Section -->
+        <div id="results-container" class="mt-4 flex-grow-1 overflow-y-auto d-none">
+            <div id="results" class="space-y-3 ">
+                <!-- Results will be injected here -->
+            </div>
+            <div id="summary-container" class="d-none mt-4">
+                 <button type="button" id="new-route-btn" class="btn btn-secondary w-100 fw-bold py-2 mt-3">
+                 Nueva Ruta
+                </button>
+                <h3 class="h5 fw-bold text-body-emphasis mb-2 mt-3">Resumen del Viaje</h3>
+                 <div id="summary-content" class="p-3 bg-body-tertiary rounded-3 border">
+                     <!-- Summary details will be injected here -->
+                 </div>
+
+            </div>
+        <!-- Loading/M
+        </div>
+essage Section -->
+        <div id="message-container" class="mt-4 flex-grow-1 d-flex align-items-center justify-content-center text-center">
+            <div id="message-content">
+                <p class="text-muted">Introduce una ruta para comenzar.</p>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Map Container -->
+    <main id="map-container" class="flex-grow-1">
+        <div id="map"></div>
+    </main>
+
+    <!-- Spinner Overlay -->
+    <div id="spinner-overlay" class="d-none position-fixed top-0 start-0 w-100 h-100 bg-dark bg-opacity-50 d-flex align-items-center justify-content-center" style="z-index: 1056;">
         <div class="loader"></div>
     </div>
 
+    <script src="dark-mode.js" defer></script>
     <script src="app.js" defer></script>
-        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
-        
 </body>
 </html>

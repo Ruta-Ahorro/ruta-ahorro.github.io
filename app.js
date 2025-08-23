@@ -33,12 +33,6 @@ const summaryContent = document.getElementById('summary-content');
 const newRouteBtn = document.getElementById('new-route-btn');
 
 // --- App State ---
-let map;
-let routeLayer;
-let stationMarkers = L.layerGroup();
-let allGasStations = [];
-let lightTileLayer, darkTileLayer, activeTileLayer;
-
 // --- Spinner Control ---
 function showSpinner() {
     spinnerOverlay.classList.remove('d-none');
@@ -47,21 +41,25 @@ function showSpinner() {
 function hideSpinner() {
     spinnerOverlay.classList.add('d-none');
 }
+let map;
+let routeLayer;
+let stationMarkers = L.layerGroup();
+let allGasStations = [];
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
     initializeMap();
     fetchGasStations();
     
-    // Event Listeners (guardados por existencia)
-    if (currentFuelSlider && currentFuelLabel) currentFuelSlider.addEventListener('input', e => { currentFuelLabel.textContent = `${e.target.value}%`; });
-    if (finalFuelSlider && finalFuelLabel) finalFuelSlider.addEventListener('input', e => { finalFuelLabel.textContent = `${e.target.value}%`; });
-    if (form) form.addEventListener('submit', handleFormSubmit);
-    if (settingsBtn && settingsPanel) settingsBtn.addEventListener('click', () => settingsPanel.classList.toggle('d-none'));
-    if (searchRadiusSlider && searchRadiusLabel) searchRadiusSlider.addEventListener('input', e => { searchRadiusLabel.textContent = e.target.value; });
-    if (locateBtn) locateBtn.addEventListener('click', handleLocateMe);
-    if (originInput && originSuggestions) setupAutocomplete(originInput, originSuggestions);
-    if (destinationInput && destinationSuggestions) setupAutocomplete(destinationInput, destinationSuggestions);
+    // Event Listeners
+    currentFuelSlider.addEventListener('input', e => { currentFuelLabel.textContent = `${e.target.value}%`; });
+    finalFuelSlider.addEventListener('input', e => { finalFuelLabel.textContent = `${e.target.value}%`; });
+    form.addEventListener('submit', handleFormSubmit);
+    settingsBtn.addEventListener('click', () => settingsPanel.classList.toggle('d-none'));
+    searchRadiusSlider.addEventListener('input', e => { searchRadiusLabel.textContent = e.target.value; });
+    locateBtn.addEventListener('click', handleLocateMe);
+    setupAutocomplete(originInput, originSuggestions);
+    setupAutocomplete(destinationInput, destinationSuggestions);
 
     // Global click listener to hide suggestions
     document.addEventListener('click', (e) => {
@@ -73,89 +71,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    if (newRouteBtn) newRouteBtn.addEventListener('click', resetUI);
-
-    // --- Dark mode setup ---
-    const darkToggle = document.getElementById('darkmode-toggle');
-    function setDarkMode(enabled) {
-        console.log('setDarkMode called, enabled=', enabled);
-        document.body.classList.toggle('dark-mode', enabled);
-        localStorage.setItem('darkMode', enabled ? '1' : '0');
-        updateDarkIcon(enabled);
-        switchMapTiles(enabled);
-        // Update meta theme-color for mobile
-        try {
-            const meta = document.querySelector('meta[name="theme-color"]');
-            if (meta) meta.setAttribute('content', enabled ? '#111' : '#4138c2');
-        } catch (e) {}
-        // Refresh dynamic inline styles applied by JS
-        refreshDynamicStyles(enabled);
-    }
-    function getSystemDark() {
-        return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    }
-    function applyInitialDarkMode() {
-        const saved = localStorage.getItem('darkMode');
-        if (saved === null) setDarkMode(getSystemDark());
-        else setDarkMode(saved === '1');
-    }
-    function updateDarkIcon(enabled) {
-        if (!darkToggle) return;
-        darkToggle.innerHTML = enabled ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-stars-fill"></i>';
-    }
-    // Limpia o aplica estilos inline añadidos por JS en componentes dinámicos
-    function refreshDynamicStyles(enabled) {
-        try {
-            // Alerts añadidos en results
-            document.querySelectorAll('#results .alert').forEach(el => {
-                if (enabled) {
-                    el.style.backgroundColor = '#274c41';
-                    el.style.color = '#e6ffe6';
-                } else {
-                    el.style.backgroundColor = '';
-                    el.style.color = '';
-                }
-            });
-            // Metadatos de cada tarjeta (small)
-            document.querySelectorAll('#results small').forEach(el => {
-                if (el.dataset && el.dataset.preserveColor) return;
-                if (enabled) el.style.color = '#cfcfcf'; else el.style.color = '';
-            });
-            // Summary content
-            const summary = document.getElementById('summary-content');
-            if (summary) {
-                if (enabled) summary.style.backgroundColor = '#202426'; else summary.style.backgroundColor = '';
-            }
-        } catch (e) {
-            console.warn('refreshDynamicStyles error', e);
-        }
-    }
-    applyInitialDarkMode();
-    try {
-        const mq = window.matchMedia('(prefers-color-scheme: dark)');
-        if (mq && mq.addEventListener) {
-            mq.addEventListener('change', e => {
-                if (localStorage.getItem('darkMode') === null) setDarkMode(e.matches);
-            });
-        }
-    } catch (e) {
-        // ignore
-    }
-    if (darkToggle) {
-        darkToggle.addEventListener('click', () => setDarkMode(!document.body.classList.contains('dark-mode')));
-    }
+    newRouteBtn.addEventListener('click', resetUI);
 });
 
 function resetUI() {
     // Hide summary and results
-    
-    resultsContainer.classList.add('d-none');
     summaryContainer.classList.add('d-none');
-    messageContainer.classList.add('d-none');
+    resultsContainer.classList.add('d-none');
     resultsDiv.innerHTML = '';
 
-    // Show form
+    // Show form and default message
     form.classList.remove('d-none');
+    showMessage('info', 'Introduce una ruta para comenzar.');
     
     // Clear map
     if (routeLayer) {
@@ -171,7 +98,6 @@ function setupAutocomplete(inputEl, suggestionsEl) {
     inputEl.addEventListener('input', () => {
         clearTimeout(debounceTimer);
         const query = inputEl.value;
-        console.log('autocomplete input:', inputEl.id, query);
 
         if (query.length < 3) {
             suggestionsEl.innerHTML = '';
@@ -187,41 +113,15 @@ function setupAutocomplete(inputEl, suggestionsEl) {
 
 async function fetchSuggestions(query, suggestionsEl, inputEl) {
     try {
-        console.log('fetchSuggestions called for', inputEl.id, query);
-        const nomUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=es&limit=5`;
-        let response = null;
-        try {
-            // Intentar directo primero
-            response = await fetch(nomUrl);
-            if (!response.ok) {
-                console.warn('Direct nominatim response not ok', response.status);
-                response = null;
-            }
-        } catch (err) {
-            console.warn('Direct nominatim fetch failed:', err);
-            response = null;
-        }
-
-        if (!response) {
-            try {
-                const proxyUrl = `https://corsproxy.io/?url=${nomUrl}`;
-                response = await fetch(proxyUrl);
-                if (!response.ok) {
-                    console.warn('Proxy nominatim response not ok', response.status);
-                    suggestionsEl.classList.add('d-none');
-                    return;
-                }
-            } catch (err) {
-                console.error('Both direct and proxy fetch failed:', err);
-                suggestionsEl.classList.add('d-none');
-                return;
-            }
+        const response = await fetch(`https://corsproxy.io/?url=https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=es&limit=5`);
+        if (!response.ok) {
+            suggestionsEl.classList.add('d-none');
+            return;
         }
 
         const suggestions = await response.json();
 
         suggestionsEl.innerHTML = '';
-        console.log('suggestions count=', suggestions.length);
         if (suggestions.length === 0) {
             suggestionsEl.classList.add('d-none');
             return;
@@ -229,8 +129,8 @@ async function fetchSuggestions(query, suggestionsEl, inputEl) {
 
         suggestions.forEach(place => {
             const suggestionItem = document.createElement('a');
+            suggestionItem.href = "#";
             suggestionItem.className = 'list-group-item list-group-item-action';
-            suggestionItem.href = '#';
             suggestionItem.textContent = place.display_name;
             suggestionItem.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -242,8 +142,6 @@ async function fetchSuggestions(query, suggestionsEl, inputEl) {
         });
 
         suggestionsEl.classList.remove('d-none');
-    // Try to keep suggestions visible/focused
-    try { suggestionsEl.scrollTop = 0; } catch (e) {}
     } catch (error) {
         console.error("Autocomplete fetch error:", error);
         suggestionsEl.innerHTML = '';
@@ -303,113 +201,126 @@ function handleLocateMe() {
 
 function initializeMap() {
     map = L.map('map').setView([40.416775, -3.703790], 6);
-    // Capas base
-    lightTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
-    });
-    // Dark tile (Carto Dark matter)
-    darkTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; OpenStreetMap contributors &copy; Carto'
-    });
-    // Elegir según modo
-    const isDark = document.body.classList.contains('dark-mode') || (localStorage.getItem('darkMode') === null && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    activeTileLayer = isDark ? darkTileLayer.addTo(map) : lightTileLayer.addTo(map);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
     stationMarkers.addTo(map);
 
+    // This is a common fix for maps in dynamically sized containers.
+    // It tells Leaflet to re-check the map's size after a short delay,
+    // ensuring the layout has been computed by the browser.
     setTimeout(() => {
         map.invalidateSize();
     }, 100);
 }
 
-function switchMapTiles(toDark) {
-    try {
-        if (!map) return;
-        if (toDark) {
-            if (activeTileLayer) map.removeLayer(activeTileLayer);
-            activeTileLayer = darkTileLayer.addTo(map);
-        } else {
-            if (activeTileLayer) map.removeLayer(activeTileLayer);
-            activeTileLayer = lightTileLayer.addTo(map);
-        }
-    } catch (e) {
-        console.warn('No se pudo cambiar capa de tiles:', e);
-    }
-}
-
 function showMessage(type, text) {
-    let alertClass = 'alert-info';
-    if (type === 'error') alertClass = 'alert-danger';
-    if (type === 'success') alertClass = 'alert-success';
-
-    let content = `<div class="alert ${alertClass}" role="alert">${text}</div>`;
-    
+    resultsContainer.classList.add('d-none');
+    messageContainer.classList.remove('d-none');
+    let content = '';
     if (type === 'loading') {
-        content = `
-            <div class="d-flex justify-content-center align-items-center">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-                <p class="ms-3 mb-0">${text}</p>
-            </div>`;
-    }
-    
-    if (messageContent && messageContainer) {
-        messageContent.innerHTML = content;
-        messageContainer.classList.remove('d-none');
+        content = `<div class="loader mx-auto"></div><p class="mt-4 text-muted">${text}</p>`;
+    } else if (type === 'error') {
+        content = `<p class="text-danger fw-semibold">${text}</p>`;
     } else {
-        console.error("Could not find message containers in the DOM.");
+        content = `<p class="text-muted">${text}</p>`;
     }
+    messageContent.innerHTML = content;
 }
 
+/**
+ * Fetches gas station data using a fallback list of CORS proxies for reliability.
+ */
 async function fetchGasStations() {
     showSpinner();
+    // The old message is redundant now
+    // showMessage('loading', 'Cargando datos de gasolineras...');
     searchButton.disabled = true;
+    searchButton.classList.add('disabled');
 
     const apiUrl = 'https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/';
-    const proxies = [{ url: 'https://corsproxy.io/?url=', type: 'direct' }];
+    
+    // List of proxies to try in order.
+    const proxies = [
+       // { url: 'https://api.allorigins.win/get?url=', type: 'allorigins' },
+        { url: 'https://corsproxy.io/?url=', type: 'direct' }
+    ];
+
     let jsonData = null;
 
     for (const proxy of proxies) {
         try {
-            const fetchUrl = proxy.url + apiUrl;
+            console.log(`Intentando con el proxy: ${proxy.url}`);
+            // Construct the full URL based on the proxy type
+            const fetchUrl = proxy.type === 'direct' 
+                ? proxy.url + apiUrl 
+                : proxy.url + encodeURIComponent(apiUrl);
+            
             const response = await fetch(fetchUrl);
-            if (!response.ok) throw new Error(`Proxy request failed with status ${response.status}`);
-            jsonData = await response.json();
-            if (jsonData && jsonData.ListaEESSPrecio) break;
-            else jsonData = null;
+
+            if (!response.ok) {
+                throw new Error(`La petición al proxy falló con estado ${response.status}`);
+            }
+            
+            // Handle different proxy response formats
+            if (proxy.type === 'allorigins') {
+                const data = await response.json();
+                jsonData = JSON.parse(data.contents);
+            } else {
+                jsonData = await response.json();
+                console.log(jsonData)
+            }
+
+            // Check if the actual API data is valid by looking for the gas station list
+            if (jsonData && jsonData.ListaEESSPrecio && Array.isArray(jsonData.ListaEESSPrecio)) {
+                console.log(`Datos obtenidos correctamente con el proxy: ${proxy.url}`);
+                break; // Success, exit the loop
+            } else {
+                jsonData = null; // Reset to null to allow the next proxy to be tried
+                throw new Error('El proxy funcionó, pero la API devolvió un error o datos no válidos.');
+            }
+
         } catch (error) {
-            console.warn(`Proxy ${proxy.url} failed.`, error);
+            console.warn(`El proxy ${proxy.url} falló. Probando el siguiente. Error:`, error);
         }
     }
 
     hideSpinner();
 
     if (!jsonData) {
-        showMessage('error', 'No se pudieron cargar los datos de las gasolineras. Inténtalo de nuevo más tarde.');
-        return;
+        console.error("Todos los proxies fallaron.");
+        showMessage('error', 'Error de conexión: No se pudieron cargar los datos de las gasolineras del gobierno. El servicio puede estar temporalmente caído. Por favor, inténtalo de nuevo más tarde.');
+        return; // Stop execution if data loading fails
     }
 
+    // Process the successfully fetched data
     try {
-        allGasStations = jsonData.ListaEESSPrecio.map(s => ({
-            id: s['IDEESS'], name: s['Rótulo'], address: `${s['Dirección']}, ${s['Localidad']}`,
-            lat: parseFloat(s['Latitud'].replace(',', '.')), lon: parseFloat(s['Longitud (WGS84)'].replace(',', '.')),
-            tipoVenta: s['Tipo Venta'],
-            horario: s['Horario'],
-            prices: {
-                'Precio Gasoleo A': parseFloat(s['Precio Gasoleo A'].replace(',', '.')) || null,
-                'Precio Gasolina 95 E5': parseFloat(s['Precio Gasolina 95 E5'].replace(',', '.')) || null,
-                'Precio Gasolina 98 E5': parseFloat(s['Precio Gasolina 98 E5'].replace(',', '.')) || null,
-                'Precio Gasoleo Premium': parseFloat(s['Precio Gasoleo Premium'].replace(',', '.')) || null,
-                'Precio Gasoleo B': parseFloat(s['Precio Gasoleo B'].replace(',', '.')) || null,
-                'Precio Gases licuados del petróleo': parseFloat(s['Precio Gases licuados del petróleo'].replace(',', '.')) || null,
-                'Precio Gas Natural Comprimido': parseFloat(s['Precio Gas Natural Comprimido'].replace(',', '.')) || null,
-                'Precio Gas Natural Licuado': parseFloat(s['Precio Gas Natural Licuado'].replace(',', '.')) || null,
-            }
-        })).filter(s => s.lat && s.lon);
+        allGasStations = jsonData.ListaEESSPrecio
+            .map(s => ({
+                id: s['IDEESS'], name: s['Rótulo'], address: `${s['Dirección']}, ${s['Localidad']}`,
+                lat: parseFloat(s['Latitud'].replace(',', '.')), lon: parseFloat(s['Longitud (WGS84)'].replace(',', '.')),
+                tipoVenta: s['Tipo Venta'],
+                horario: s['Horario'],
+
+                prices: {
+                    'Precio Gasoleo A': parseFloat(s['Precio Gasoleo A'].replace(',', '.')) || null,
+                    'Precio Gasolina 95 E5': parseFloat(s['Precio Gasolina 95 E5'].replace(',', '.')) || null,
+                    'Precio Gasolina 98 E5': parseFloat(s['Precio Gasolina 98 E5'].replace(',', '.')) || null,
+                    'Precio Gasoleo Premium': parseFloat(s['Precio Gasoleo Premium'].replace(',', '.')) || null,
+                    'Precio Gasoleo B': parseFloat(s['Precio Gasoleo B'].replace(',', '.')) || null,
+                    'Precio Gases licuados del petróleo': parseFloat(s['Precio Gases licuados del petróleo'].replace(',', '.')) || null,
+                    'Precio Gas Natural Comprimido': parseFloat(s['Precio Gas Natural Comprimido'].replace(',', '.')) || null,
+                    'Precio Gas Natural Licuado': parseFloat(s['Precio Gas Natural Licuado'].replace(',', '.')) || null,
+                }
+            })).filter(s => s.lat && s.lon);
         
+        console.log(`Cargadas ${allGasStations.length} gasolineras.`);
+        showMessage('info', 'Datos cargados. ¡Listo para buscar tu ruta!');
         searchButton.disabled = false;
+        searchButton.classList.remove('disabled');
+
     } catch (error) {
-        console.error("Error processing gas station data:", error);
+        console.error("Error procesando los datos de las gasolineras:", error);
         showMessage('error', 'Se recibió una respuesta inesperada del servicio de gasolineras.');
     }
 }
@@ -417,9 +328,7 @@ async function fetchGasStations() {
 async function handleFormSubmit(e) {
     e.preventDefault();
     showSpinner();
-    form.classList.add('d-none');
-    showMessage('loading', 'Calculando la mejor ruta y paradas...');
-    
+    //showMessage('loading', 'Calculando la mejor ruta y paradas...');
     if (routeLayer) map.removeLayer(routeLayer);
     stationMarkers.clearLayers();
     resultsDiv.innerHTML = '';
@@ -428,50 +337,78 @@ async function handleFormSubmit(e) {
         const originText = originInput.value;
         const destinationText = destinationInput.value;
 
-        const [originCoords, destCoords] = await Promise.all([geocodeAddress(originText), geocodeAddress(destinationText)]);
-        if (!originCoords || !destCoords) throw new Error("No se pudieron geolocalizar las direcciones. Intenta ser más específico.");
+        let originCoords, destCoords;
+        try {
+            [originCoords, destCoords] = await Promise.all([geocodeAddress(originText), geocodeAddress(destinationText)]);
+        } catch (e) {
+            throw new Error("Error de conexión con el servicio de mapas (Nominatim) al buscar direcciones.");
+        }
         
-        const routeData = await getRoute(originCoords, destCoords);
-        if (!routeData) throw new Error("No se pudo calcular la ruta entre los puntos.");
+        if (!originCoords || !destCoords) throw new Error("No se pudieron geolocalizar las direcciones. Intenta ser más específico o revisa tu conexión.");
+
+        let routeData;
+        try {
+            routeData = await getRoute(originCoords, destCoords);
+        } catch (e) {
+            throw new Error("Error de conexión con el servicio de rutas (OSRM). No se pudo calcular la ruta.");
+        }
+        
+        if (!routeData) throw new Error("No se pudo encontrar una ruta válida entre el origen y el destino.");
 
         const routeLine = turf.lineString(routeData.geometry.coordinates);
-        routeLayer = L.geoJSON(routeLine).addTo(map);
+        var miEstilo = {
+    "color": "#4138c2", // El color de la línea, en este caso azul oscuro. 🔵
+    "weight": 2,        // El grosor de la línea en píxeles.
+    "opacity": 0.8      // La transparencia de la línea.
+};
+        routeLayer = L.geoJSON(routeLine, { style: miEstilo }).addTo(map);
+                // Force the map to re-evaluate its size before fitting the bounds
+                map.invalidateSize();
         map.fitBounds(routeLayer.getBounds().pad(0.1));
         const routeDistance = turf.length(routeLine, { units: 'kilometers' });
 
+        // --- Web Worker Implementation ---
         const worker = new Worker('worker.js');
 
         worker.onmessage = function(e) {
             hideSpinner();
-            messageContainer.classList.add('d-none'); // Hide loading message
             const { success, results, error, origin, destination } = e.data;
             if (success) {
+                console.log('Main: Results received from worker.');
                 displayResults(results, origin, destination);
-                resultsContainer.classList.remove('d-none');
-
+                
+                // Hide form and show summary
+                form.classList.add('d-none');
                 const formData = new FormData(form);
                 const fuelTypeEl = form.elements['fuel-type'];
                 summaryContent.innerHTML = `
-                    <p class="mb-1"><strong>Origen:</strong> ${originText}</p>
-                    <p class="mb-1"><strong>Destino:</strong> ${destinationText}</p>
-                    <p class="mb-1"><strong>Combustible:</strong> ${fuelTypeEl.options[fuelTypeEl.selectedIndex].text}</p>
-                    <p class="mb-0"><strong>Consumo:</strong> ${formData.get('consumption')} L/100km</p>
+                    <p><strong>Origen:</strong> ${formData.get('origin')}</p>
+                    <p><strong>Destino:</strong> ${formData.get('destination')}</p>
+                    <p><strong>Combustible:</strong> ${fuelTypeEl.options[fuelTypeEl.selectedIndex].text}</p>
+                    <p><strong>Consumo:</strong> ${formData.get('consumption')} L/100km</p>
                 `;
                 summaryContainer.classList.remove('d-none');
             } else {
-                showMessage('error', error);
-                form.classList.remove('d-none');
+                console.error('Main: Error message received from worker.', error);
+                // Custom, more user-friendly error messages
+                let userMessage = error;
+                if (error.includes("No hay gasolineras alcanzables") || error.includes("No hay gasolineras adecuadas")) {
+                    userMessage = "No se encontraron gasolineras adecuadas para completar la ruta con la configuración actual. Prueba a aumentar la distancia de búsqueda en la configuración.";
+                }
+                showMessage('error', userMessage);
             }
+            // Terminate worker after use
             worker.terminate();
         };
 
         worker.onerror = function(e) {
             hideSpinner();
+            console.error('Main: An error occurred in the worker.', e);
             showMessage('error', `Error en el worker: ${e.message}`);
-            form.classList.remove('d-none');
             worker.terminate();
         };
 
+        // Collect parameters to send to the worker
         const params = {
             fuelType: document.getElementById('fuel-type').value,
             tankCapacity: parseFloat(document.getElementById('tank-capacity').value),
@@ -482,15 +419,22 @@ async function handleFormSubmit(e) {
             includeRestricted: document.getElementById('include-restricted').checked
         };
 
+        console.log('Main: Posting message to worker.');
+        // Post data to the worker to start calculation.
         worker.postMessage({
-            routeLine, routeDistance, params, allGasStations,
-            origin: originText, destination: destinationText
+            routeLine,
+            routeDistance,
+            params,
+            allGasStations,
+            origin: originText,
+            destination: destinationText
         });
+        // --- End of Web Worker Implementation ---
 
     } catch (error) {
         hideSpinner();
+        console.error("Route calculation error:", error);
         showMessage('error', error.message);
-        form.classList.remove('d-none');
     }
 }
 
@@ -510,21 +454,32 @@ async function getRoute(origin, dest) {
 function displayResults(results, origin, destination) {
     const stops = results.stops;
     if (stops.length === 0) {
-        showMessage('success', '¡Buenas noticias! Con tu nivel de combustible actual, puedes llegar a tu destino sin necesidad de repostar.');
+        if (allGasStations.length === 0) {
+             showMessage('error', 'Error crítico: No se pudieron cargar los datos de las gasolineras. Por favor, recarga la página.');
+        } else {
+             showMessage('info', '¡Buenas noticias! Con tu nivel de combustible actual, puedes llegar a tu destino sin necesidad de repostar.');
+        }
         return;
     }
 
+    messageContainer.classList.add('d-none');
+    resultsContainer.classList.remove('d-none');
     resultsDiv.innerHTML = '';
     
-    if (stops.length > 0) {
+    const title = document.createElement('h3');
+    title.className = "h5 fw-bold text-body-emphasis mb-2";
+    title.textContent = "Plan de paradas sugeridas";
+    resultsDiv.appendChild(title);
+                if (stops.length > 0) {
         const waypoints = stops.map(s => `${s.lat},${s.lon}`).join('|');
         const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&waypoints=${encodeURIComponent(waypoints)}`;
 
         const buttonContainer = document.createElement('div');
-        buttonContainer.className = 'd-grid gap-2 mb-3';
+        buttonContainer.className = 'mt-3 d-grid';
         buttonContainer.innerHTML = `
-            <a href="${googleMapsUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">
-                <i class="bi bi-google"></i> Abrir Ruta en Google Maps
+            <a href="${googleMapsUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-primary d-flex align-items-center justify-content-center">
+                <i class="bi bi-google me-2"></i>
+                Abrir Ruta Completa en Google Maps
             </a>
         `;
         resultsDiv.appendChild(buttonContainer);
@@ -534,58 +489,40 @@ function displayResults(results, origin, destination) {
 
         if (savingsVsAvg > 0 || savingsVsMax > 0) {
             const savingsContainer = document.createElement('div');
-            savingsContainer.className = 'alert alert-success';
-            if (document.body.classList.contains('dark-mode')) {
-                savingsContainer.style.backgroundColor = '#274c41';
-                savingsContainer.style.color = '#e6ffe6';
-            }
+            savingsContainer.className = 'mt-3 p-3 bg-success-subtle border border-success-subtle rounded-3 mb-3';
             savingsContainer.innerHTML = `
-                <h4 class="alert-heading h6">¡Ahorro estimado!</h4>
-                <p class="mb-1">Ahorras <strong>${savingsVsAvg.toFixed(2)}€</strong> en comparación con el precio medio.</p>
-                <hr>
-                <p class="mb-0">Ahorras <strong>${savingsVsMax.toFixed(2)}€</strong> en comparación con la opción más cara.</p>
+                <h4 class="h6 fw-bold text-success-emphasis mb-2">Resumen de Ahorro</h4>
+                <p class="text-sm text-success-emphasis">
+                    Ahorras <span class="fw-bold">${savingsVsAvg.toFixed(2)}€</span> en comparación con el precio medio de la ruta.
+                </p>
+                <p class="text-sm text-success-emphasis mt-1">
+                    Ahorras <span class="fw-bold">${savingsVsMax.toFixed(2)}€</span> en comparación con el más caro.
+                </p>
             `;
             resultsDiv.appendChild(savingsContainer);
         }
     }
-
     stops.forEach((station, index) => {
-    const card = document.createElement('a');
-    card.href = `https://www.google.com/maps/search/?api=1&query=${station.lat},${station.lon}`;
-    card.target = '_blank';
-    card.className = 'list-group-item list-group-item-action';
-    // Build inner content to allow styling tweaks
-    const header = document.createElement('div');
-    header.className = 'd-flex w-100 justify-content-between';
-    const h5 = document.createElement('h5');
-    h5.className = 'mb-1 fw-bold text-primary';
-    h5.textContent = `Parada ${index + 1}: ${station.name}`;
-    const priceSmall = document.createElement('small');
-    priceSmall.className = 'text-success fw-bold';
-    priceSmall.textContent = `${station.prices[form.elements['fuel-type'].value].toFixed(3)} €/L`;
-    header.appendChild(h5);
-    header.appendChild(priceSmall);
+        const card = document.createElement('div');
+        card.className = 'card card-body mb-2 bg-body-tertiary';
+        card.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start">
+                <div class="flex-grow-1">
+                    <p class="fw-bold" style="color:#b549ff;" >Parada ${index + 1}: ${station.name}</p>
+                    <p class=" fw-bold small text-danger">${station.horario}</p>
+                    <p class="small text-muted">${station.address}</p>
+                    <p class="small text-muted">Aprox. en el km ${Math.round(station.distanceFromStart)}</p>
+                </div>
+                <div class="text-end ms-2 flex-shrink-0">
+                    <p class="h5 fw-bold text-body-emphasis">${station.prices[form.elements['fuel-type'].value].toFixed(3)} €/L</p>
+                    <p class="small text-muted">Repostar: ${station.refuelAmount.toFixed(1)} L</p>
+                    <p class="small fw-semibold text-success">Coste: ${station.refuelCost.toFixed(2)}€</p>
+                </div>
+            </div>
+        `;
+        resultsDiv.appendChild(card);
 
-    const addr = document.createElement('p');
-    addr.className = 'mb-1';
-    addr.textContent = station.address;
-
-    const meta = document.createElement('small');
-    meta.style.display = 'block';
-    meta.style.color = document.body.classList.contains('dark-mode') ? '#cfcfcf' : '';
-    meta.textContent = `Aprox. en el km ${Math.round(station.distanceFromStart)} | Repostar: ${station.refuelAmount.toFixed(1)} L | Coste: ${station.refuelCost.toFixed(2)}€`;
-
-    const horario = document.createElement('small');
-    horario.className = 'd-block text-danger';
-    horario.textContent = station.horario;
-
-    card.appendChild(header);
-    card.appendChild(addr);
-    card.appendChild(meta);
-    card.appendChild(horario);
-    resultsDiv.appendChild(card);
-
-        const markerColor = '#0d6efd'; // Bootstrap primary
+        const markerColor = '#b549ff';
         const markerHtml = `<div style="background-color: ${markerColor}; color: white; border-radius: 50%; width: 2rem; height: 2rem; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">${index + 1}</div>`;
         const icon = L.divIcon({ html: markerHtml, className: '', iconSize: [32, 32], iconAnchor: [16, 16] });
 
@@ -593,4 +530,6 @@ function displayResults(results, origin, destination) {
             .bindPopup(`<b>Parada ${index + 1}: ${station.name}</b><br>${station.address}<br>Precio: ${station.prices[form.elements['fuel-type'].value].toFixed(3)} €/L`)
             .addTo(stationMarkers);
     });
+
+
 }
