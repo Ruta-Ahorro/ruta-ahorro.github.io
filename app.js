@@ -31,6 +31,7 @@ const destinationSuggestions = document.getElementById('destination-suggestions'
 //const summaryContainer = document.getElementById('summary-container');
 //const summaryContent = document.getElementById('summary-content');
 const newRouteBtn = document.getElementById('new-route-btn');
+// Mover manualSearchBtn dentro de DOMContentLoaded
 
 // --- App State ---
 // --- Spinner Control ---
@@ -47,9 +48,19 @@ let stationMarkers = L.layerGroup();
 let allGasStations = [];
 let currentRouteData = null; // Para almacenar datos de la ruta actual
 let currentRouteStations = []; // Para almacenar gasolineras de la ruta actual
+let manualSearchBtn; // Declarar como variable global
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
+    manualSearchBtn = document.getElementById('manual-search-button');
+    
+    // Deshabilitar inmediatamente hasta que se carguen las gasolineras
+    if (manualSearchBtn) {
+        manualSearchBtn.disabled = true;
+        manualSearchBtn.classList.add('disabled');
+        console.log('Botón manual deshabilitado inicialmente');
+    }
+    
     initializeMap();
     fetchGasStations();
     
@@ -74,6 +85,29 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     newRouteBtn.addEventListener('click', resetUI);
+    
+    // Event listener para búsqueda manual desde la pantalla principal
+    if (manualSearchBtn) {
+        console.log('Botón manual encontrado, añadiendo event listener');
+        
+        manualSearchBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            console.log('Click detectado en botón manual');
+            
+            // Verificar si el botón está deshabilitado
+            if (manualSearchBtn.disabled || manualSearchBtn.classList.contains('disabled')) {
+                console.log('Botón está deshabilitado, ignorando click');
+                return;
+            }
+            
+            console.log('Ejecutando handleManualSearch');
+            handleManualSearch();
+        });
+    } else {
+        console.error('No se encontró el botón manual-search-button');
+    }
 });
 
 function resetUI() {
@@ -92,6 +126,113 @@ function resetUI() {
         routeLayer = null;
     }
     stationMarkers.clearLayers();
+}
+
+async function handleManualSearch() {
+    console.log('handleManualSearch llamado');
+    const originText = originInput.value.trim();
+    const destinationText = destinationInput.value.trim();
+    
+    console.log('Origen:', originText, 'Destino:', destinationText);
+    
+    if (!originText || !destinationText) {
+        console.log('Campos vacíos detectados');
+        showMessage('error', 'Por favor, introduce tanto el origen como el destino antes de buscar paradas manuales.');
+        return;
+    }
+    
+    showSpinner();
+    
+    try {
+        // Geocodificar direcciones
+        let originCoords, destCoords;
+        try {
+            [originCoords, destCoords] = await Promise.all([geocodeAddress(originText), geocodeAddress(destinationText)]);
+        } catch (e) {
+            throw new Error("Error de conexión con el servicio de mapas (Nominatim) al buscar direcciones.");
+        }
+        
+        if (!originCoords || !destCoords) {
+            throw new Error("No se pudieron geolocalizar las direcciones. Intenta ser más específico o revisa tu conexión.");
+        }
+
+        // Obtener ruta
+        let routeData;
+        try {
+            routeData = await getRoute(originCoords, destCoords);
+        } catch (e) {
+            throw new Error("Error al calcular la ruta. Verifica tu conexión a internet.");
+        }
+        
+        if (!routeData) {
+            throw new Error("No se pudo calcular la ruta entre los puntos especificados.");
+        }
+
+        // Crear geometría de la ruta
+        const routeLine = turf.lineString(routeData.geometry.coordinates);
+        var miEstilo = {
+            "color": "#4138c2",
+            "weight": 2,
+            "opacity": 0.8
+        };
+        
+        // Limpiar mapa anterior y mostrar nueva ruta
+        if (routeLayer) {
+            map.removeLayer(routeLayer);
+        }
+        routeLayer = L.geoJSON(routeLine, { style: miEstilo }).addTo(map);
+        map.invalidateSize();
+        map.fitBounds(routeLayer.getBounds().pad(0.1));
+        
+        const routeDistance = turf.length(routeLine, { units: 'kilometers' });
+
+        // Preparar parámetros para la búsqueda manual
+        const params = {
+            fuelType: document.getElementById('fuel-type').value,
+            tankCapacity: parseFloat(document.getElementById('tank-capacity').value),
+            currentFuelPercent: parseFloat(document.getElementById('current-fuel').value),
+            finalFuelPercent: parseFloat(document.getElementById('final-fuel').value),
+            consumption: parseFloat(document.getElementById('consumption').value) || 6.5,
+            searchRadius: parseFloat(document.getElementById('search-radius').value),
+            includeRestricted: document.getElementById('include-restricted').checked
+        };
+
+        // Almacenar datos para ruta manual
+        currentRouteData = {
+            routeLine: routeLine,
+            routeDistance: routeDistance,
+            origin: originText,
+            destination: destinationText,
+            params: params
+        };
+
+        hideSpinner();
+        
+        // Calcular estaciones más baratas directamente aquí
+        console.log('Calculando estaciones más baratas...');
+        const cheapestStations = getCheapestStationsOnRoute(
+            routeLine, 
+            params, 
+            allGasStations, 
+            originText, 
+            destinationText
+        );
+
+        console.log('Estaciones encontradas:', cheapestStations.length);
+
+        if (cheapestStations.length === 0) {
+            showMessage('error', 'No se encontraron gasolineras baratas en la ruta. Intenta aumentar la distancia de búsqueda en la configuración.');
+            return;
+        }
+        
+        // Mostrar opciones de ruta manual directamente con las estaciones calculadas
+        showManualRouteOptions(originText, destinationText, cheapestStations);
+        
+    } catch (error) {
+        hideSpinner();
+        console.error("Manual search error:", error);
+        showMessage('error', error.message);
+    }
 }
 
 // --- Autocomplete ---
@@ -239,6 +380,15 @@ async function fetchGasStations() {
     // showMessage('loading', 'Cargando datos de gasolineras...');
     searchButton.disabled = true;
     searchButton.classList.add('disabled');
+    
+    // Deshabilitar botón de búsqueda manual también
+    if (manualSearchBtn) {
+        console.log('Deshabilitando botón manual durante carga');
+        manualSearchBtn.disabled = true;
+        manualSearchBtn.classList.add('disabled');
+    } else {
+        console.error('No se pudo deshabilitar el botón manual');
+    }
 
     const apiUrl = 'https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/';
     
@@ -320,6 +470,15 @@ async function fetchGasStations() {
         showMessage('info', 'Datos cargados. ¡Listo para buscar tu ruta!');
         searchButton.disabled = false;
         searchButton.classList.remove('disabled');
+        
+        // Habilitar botón de búsqueda manual también
+        if (manualSearchBtn) {
+            console.log('Habilitando botón manual después de cargar gasolineras');
+            manualSearchBtn.disabled = false;
+            manualSearchBtn.classList.remove('disabled');
+        } else {
+            console.error('No se pudo habilitar el botón manual - elemento no encontrado');
+        }
 
     } catch (error) {
         console.error("Error procesando los datos de las gasolineras:", error);
@@ -466,6 +625,8 @@ async function getRoute(origin, dest) {
 }
 
 function getCheapestStationsOnRoute(routeLine, params, allGasStations, origin, destination) {
+    console.log('getCheapestStationsOnRoute llamado con:', params.fuelType, 'Total gasolineras:', allGasStations.length);
+    
     const { fuelType, searchRadius, includeRestricted } = params;
     
     // Filtrar estaciones como en el worker
@@ -480,6 +641,8 @@ function getCheapestStationsOnRoute(routeLine, params, allGasStations, origin, d
         return saleTypeFilter;
     });
 
+    console.log('Candidatas después de filtro tipo:', candidateStations.length);
+
     // Crear bounding box buffeado
     const routeBbox = turf.bbox(routeLine);
     const bufferedBboxPolygon = turf.buffer(turf.bboxPolygon(routeBbox), searchRadius, { units: 'kilometers' });
@@ -489,6 +652,8 @@ function getCheapestStationsOnRoute(routeLine, params, allGasStations, origin, d
         const point = turf.point([station.lon, station.lat]);
         return turf.booleanPointInPolygon(point, bufferedBboxPolygon);
     });
+
+    console.log('Candidatas después de filtro bbox:', candidateStations.length);
 
     // Filtrado detallado
     const originPoint = turf.point(routeLine.geometry.coordinates[0]);
@@ -505,12 +670,17 @@ function getCheapestStationsOnRoute(routeLine, params, allGasStations, origin, d
             const distanceFromStart = turf.distance(originPoint, nearestPointOnRoute, { units: 'kilometers' });
 
             return { ...station, distanceFromStart };
-        })
+        });
+    
+    console.log('Estaciones después de filtro de distancia a ruta:', stationsOnRoute.length);
+    
+    const finalStations = stationsOnRoute
         .sort((a, b) => a.prices[fuelType] - b.prices[fuelType]) // Ordenar por precio
         .slice(0, 15) // Tomar las 15 más baratas
         .sort((a, b) => a.distanceFromStart - b.distanceFromStart); // Ordenar por distancia desde origen
 
-    return stationsOnRoute;
+    console.log('Estaciones finales encontradas:', finalStations.length);
+    return finalStations;
 }
 
 // Función para actualizar marcadores basado en selección
@@ -519,20 +689,32 @@ function updateMapMarkers(stations) {
     
     const selectedCheckboxes = document.querySelectorAll('.station-checkbox:checked');
     
-    selectedCheckboxes.forEach(checkbox => {
+    // Crear array de estaciones seleccionadas con su orden de distancia
+    const selectedStations = Array.from(selectedCheckboxes).map(checkbox => {
         const index = parseInt(checkbox.value);
-        const station = stations[index];
-        
+        return {
+            ...stations[index],
+            originalIndex: index
+        };
+    });
+    
+    // Ordenar por distancia desde origen para establecer el orden de parada
+    selectedStations.sort((a, b) => a.distanceFromStart - b.distanceFromStart);
+    
+    // Crear marcadores con números correlativos de parada
+    selectedStations.forEach((station, stopNumber) => {
         const markerColor = '#4138c2'; // Color del tema de la app
-        const markerHtml = `<div style="background-color: ${markerColor}; color: white; border-radius: 50%; width: 1.8rem; height: 1.8rem; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3); font-size: 0.9rem;">${index + 1}</div>`;
+        const stopIndex = stopNumber + 1; // Número de parada (1, 2, 3...)
+        const markerHtml = `<div style="background-color: ${markerColor}; color: white; border-radius: 50%; width: 1.8rem; height: 1.8rem; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3); font-size: 0.9rem;">${stopIndex}</div>`;
         const icon = L.divIcon({ html: markerHtml, className: '', iconSize: [28, 28], iconAnchor: [14, 14] });
 
         L.marker([station.lat, station.lon], { icon })
-            .bindPopup(`<b>${station.name}</b><br>${station.address}<br>Precio: ${station.prices[currentRouteData.params.fuelType].toFixed(3)} €/L<br>Km ${Math.round(station.distanceFromStart)} desde origen`)
+            .bindPopup(`<b>Parada ${stopIndex}: ${station.name}</b><br>${station.address}<br>Precio: ${station.prices[currentRouteData.params.fuelType].toFixed(3)} €/L<br>Km ${Math.round(station.distanceFromStart)} desde origen`)
             .addTo(stationMarkers);
     });
     
     // Actualizar contador
+    updateSelectionCounter(selectedCheckboxes.length);
     updateSelectionCounter(selectedCheckboxes.length);
 }
 
@@ -557,20 +739,20 @@ function updateSelectionCounter(count) {
 }
 
 // Función para actualizar apariencia de la tarjeta
-function updateCardAppearance(card, isSelected) {
+function updateCardAppearance(card, isSelected, stations) {
     if (isSelected) {
         card.classList.add('selected');
         // Actualizar el orden de selección
-        updateSelectionOrder();
+        updateSelectionOrder(stations);
     } else {
         card.classList.remove('selected');
         // Actualizar el orden de selección
-        updateSelectionOrder();
+        updateSelectionOrder(stations);
     }
 }
 
 // Función para actualizar el orden de selección en los badges
-function updateSelectionOrder() {
+function updateSelectionOrder(stations) {
     const selectedCheckboxes = document.querySelectorAll('.station-checkbox:checked');
     
     // Limpiar todos los badges
@@ -578,37 +760,81 @@ function updateSelectionOrder() {
         badge.textContent = '';
     });
     
-    // Asignar números de orden
-    selectedCheckboxes.forEach((checkbox, orderIndex) => {
+    if (selectedCheckboxes.length === 0 || !stations) return;
+    
+    // Obtener estaciones seleccionadas con sus datos completos
+    const selectedStationsData = Array.from(selectedCheckboxes).map(checkbox => {
         const stationIndex = parseInt(checkbox.value);
-        const badge = document.getElementById(`badge-${stationIndex}`);
+        return {
+            stationIndex,
+            station: stations[stationIndex]
+        };
+    });
+    
+    // Ordenar por distancia desde origen
+    selectedStationsData.sort((a, b) => a.station.distanceFromStart - b.station.distanceFromStart);
+    
+    // Asignar números de parada ordenados por distancia
+    selectedStationsData.forEach((stationData, orderIndex) => {
+        const badge = document.getElementById(`badge-${stationData.stationIndex}`);
         if (badge) {
             badge.textContent = orderIndex + 1;
         }
     });
 }
 
-function showManualRouteOptions(origin, destination) {
+function showManualRouteOptions(origin, destination, preCalculatedStations = null) {
+    console.log('showManualRouteOptions llamado con:', origin, destination, 'estaciones precalculadas:', preCalculatedStations ? preCalculatedStations.length : 'ninguna');
+    
     if (!currentRouteData) {
-        alert('No hay datos de ruta disponibles');
+        alert('No hay datos de ruta disponibles. Por favor, calcula una ruta primero.');
         return;
     }
 
-    const cheapestStations = getCheapestStationsOnRoute(
-        currentRouteData.routeLine, 
-        currentRouteData.params, 
-        allGasStations, 
-        origin, 
-        destination
-    );
+    if (!allGasStations || allGasStations.length === 0) {
+        alert('Los datos de gasolineras aún no están disponibles. Por favor, espera un momento e inténtalo de nuevo.');
+        return;
+    }
+
+    let cheapestStations;
+    
+    if (preCalculatedStations) {
+        // Usar estaciones pre-calculadas
+        cheapestStations = preCalculatedStations;
+        console.log('Usando estaciones precalculadas:', cheapestStations.length);
+    } else {
+        // Calcular estaciones (flujo original)
+        console.log('Calculando estaciones en showManualRouteOptions...');
+        cheapestStations = getCheapestStationsOnRoute(
+            currentRouteData.routeLine, 
+            currentRouteData.params, 
+            allGasStations, 
+            origin, 
+            destination
+        );
+        console.log('Estaciones calculadas:', cheapestStations.length);
+    }
 
     if (cheapestStations.length === 0) {
-        alert('No se encontraron gasolineras baratas en la ruta');
+        alert('No se encontraron gasolineras baratas en la ruta. Intenta aumentar la distancia de búsqueda en la configuración.');
         return;
     }
+
+    console.log('Iniciando generación de interfaz visual...');
 
     // Limpiar contenido anterior
     resultsDiv.innerHTML = '';
+    
+    console.log('Contenido anterior limpiado');
+
+    // Mostrar contenedor de resultados y ocultar mensaje
+    messageContainer.classList.add('d-none');
+    resultsContainer.classList.remove('d-none');
+    
+    // Ocultar el formulario principal
+    form.classList.add('d-none');
+    
+    console.log('Contenedor de resultados mostrado y formulario ocultado');
 
     // Título
     const title = document.createElement('h3');
@@ -632,6 +858,9 @@ headerContainer.appendChild(backToResultsBtn);
 
 // 4. Añade el contenedor completo a tu resultsDiv
 resultsDiv.appendChild(headerContainer);
+
+console.log('Header container añadido');
+
     // Contenedor de botones de acción
     //const actionContainer = document.createElement('div');
     //actionContainer.className = 'mb-3 d-flex gap-2';
@@ -651,9 +880,14 @@ resultsDiv.appendChild(headerContainer);
         <small class="text-muted mt-2 text-center" id="selection-counter">0 gasolineras seleccionadas</small>
     `;
     resultsDiv.appendChild(generateContainer);
+    
+    console.log('Generate container añadido');
+    
     // Lista de estaciones con checkboxes
     const stationsContainer = document.createElement('div');
     stationsContainer.id = 'manual-stations-container';
+    
+    console.log('Iniciando creación de', cheapestStations.length, 'tarjetas de estaciones');
     
     cheapestStations.forEach((station, index) => {
         const card = document.createElement('div');
@@ -687,7 +921,7 @@ resultsDiv.appendChild(headerContainer);
                 const checkbox = card.querySelector('.station-checkbox');
                 checkbox.checked = !checkbox.checked;
                 updateMapMarkers(cheapestStations);
-                updateCardAppearance(card, checkbox.checked);
+                updateCardAppearance(card, checkbox.checked, cheapestStations);
             }
         });
 
@@ -695,11 +929,13 @@ resultsDiv.appendChild(headerContainer);
         const checkbox = card.querySelector('.station-checkbox');
         checkbox.addEventListener('change', () => {
             updateMapMarkers(cheapestStations);
-            updateCardAppearance(card, checkbox.checked);
+            updateCardAppearance(card, checkbox.checked, cheapestStations);
         });
     });
     
     resultsDiv.appendChild(stationsContainer);
+    
+    console.log('Stations container añadido al DOM');
 
     // Botón para generar ruta
 
@@ -709,7 +945,7 @@ resultsDiv.appendChild(headerContainer);
 //        document.querySelectorAll('.station-checkbox').forEach(cb => {
 //            cb.checked = true;
 //            const card = cb.closest('.station-card');
-//            updateCardAppearance(card, true);
+//            updateCardAppearance(card, true, cheapestStations);
 //        });
 //        updateMapMarkers(cheapestStations);
 //    });
@@ -718,23 +954,28 @@ resultsDiv.appendChild(headerContainer);
 //        document.querySelectorAll('.station-checkbox').forEach(cb => {
 //            cb.checked = false;
 //            const card = cb.closest('.station-card');
-//            updateCardAppearance(card, false);
+//            updateCardAppearance(card, false, cheapestStations);
 //        });
 //        updateMapMarkers(cheapestStations);
 //    });
 
     document.getElementById('back-to-results-btn').addEventListener('click', () => {
-        // Volver a mostrar los resultados originales
-        if (currentRouteData && currentRouteData.lastResults) {
-            displayResults(currentRouteData.lastResults, origin, destination);
-            
-            // Restaurar form hidden y summary visible
-           // form.classList.add('d-none');
-           // summaryContainer.classList.remove('d-none');
-        } else {
-            // Fallback: recargar la página
-            location.reload();
+        // Volver a mostrar el formulario principal
+        form.classList.remove('d-none');
+        resultsContainer.classList.add('d-none');
+        messageContainer.classList.remove('d-none');
+        
+        // Limpiar el mapa
+        stationMarkers.clearLayers();
+        if (routeLayer) {
+            map.removeLayer(routeLayer);
+            routeLayer = null;
         }
+        
+        // Mostrar mensaje por defecto
+        showMessage('info', 'Introduce una ruta para comenzar.');
+        
+        console.log('Vuelta a la pantalla principal');
     });
 
     document.getElementById('generate-manual-route-btn').addEventListener('click', () => {
@@ -766,6 +1007,8 @@ resultsDiv.appendChild(headerContainer);
     
     // Inicializar contador
     updateSelectionCounter(0);
+    
+    console.log('showManualRouteOptions completado exitosamente');
 }
 
 function displayResults(results, origin, destination) {
@@ -852,16 +1095,21 @@ function displayResults(results, origin, destination) {
     const manualRouteContainer = document.createElement('div');
     manualRouteContainer.className = 'mt-3 d-grid';
     manualRouteContainer.innerHTML = `
-        <button id="manual-route-btn" class="btn btn-secondary">
+        <button id="manual-route-btn" class="btn btn-info">
             <i class="bi bi-list-check me-2"></i>
-            Crear Ruta Manual
+            Buscar Paradas Manuales
         </button>
     `;
     resultsDiv.appendChild(manualRouteContainer);
 
     // Event listener para el botón de ruta manual
     document.getElementById('manual-route-btn').addEventListener('click', () => {
-        showManualRouteOptions(origin, destination);
+        showSpinner();
+        // Usar setTimeout para permitir que el spinner se muestre antes de procesar
+        setTimeout(() => {
+            showManualRouteOptions(origin, destination);
+            hideSpinner();
+        }, 100);
     });
 
 
