@@ -362,7 +362,7 @@ function showMessage(type, text) {
     messageContainer.classList.remove('d-none');
     let content = '';
     if (type === 'loading') {
-        content = `<div class="loader mx-auto"></div><p class="mt-4 text-muted">${text}</p>`;
+        content = `<div class="loader mx-auto"></div><p class="mt-2 text-muted">${text}</p>`;
     } else if (type === 'error') {
         content = `<p class="text-danger fw-semibold">${text}</p>`;
     } else {
@@ -871,7 +871,7 @@ console.log('Header container añadido');
    // `;
     //resultsDiv.appendChild(actionContainer);
         const generateContainer = document.createElement('div');
-    generateContainer.className = 'mt-3 d-grid';
+    generateContainer.className = 'mt-2 d-grid';
     generateContainer.innerHTML = `
         <button id="generate-manual-route-btn" class="btn btn-primary">
             <i class="bi bi-google me-2"></i>
@@ -1035,7 +1035,7 @@ function displayResults(results, origin, destination) {
         const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&waypoints=${encodeURIComponent(waypoints)}`;
 
         const buttonContainer = document.createElement('div');
-        buttonContainer.className = 'mt-3 d-grid';
+        buttonContainer.className = 'mt-2 d-grid';
         buttonContainer.innerHTML = `
             <a href="${googleMapsUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-primary d-flex align-items-center justify-content-center">
                 <i class="bi bi-google me-2"></i>
@@ -1049,7 +1049,7 @@ function displayResults(results, origin, destination) {
 
         if (savingsVsAvg > 0 || savingsVsMax > 0) {
             const savingsContainer = document.createElement('div');
-            savingsContainer.className = 'mt-3 p-2 bg-success-subtle border border-success-subtle rounded-3 mb-1';
+            savingsContainer.className = 'mt-2 p-2 bg-success-subtle border border-success-subtle rounded-3 mb-1';
             savingsContainer.innerHTML = `
                 
                 <p class="text-sm text-success-emphasis">
@@ -1093,7 +1093,7 @@ function displayResults(results, origin, destination) {
 
     // Añadir botón para ruta manual
     const manualRouteContainer = document.createElement('div');
-    manualRouteContainer.className = 'mt-3 d-grid';
+    manualRouteContainer.className = 'mt-2 d-grid';
     manualRouteContainer.innerHTML = `
         <button id="manual-route-btn" class="btn btn-info">
             <i class="bi bi-list-check me-2"></i>
