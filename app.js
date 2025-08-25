@@ -256,7 +256,7 @@ function setupAutocomplete(inputEl, suggestionsEl) {
 
 async function fetchSuggestions(query, suggestionsEl, inputEl) {
     try {
-        const response = await fetch(`https://corsproxy.io/?url=https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=es&limit=5`);
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=es&limit=5`);
         if (!response.ok) {
             suggestionsEl.classList.add('d-none');
             return;
@@ -306,7 +306,7 @@ function handleLocateMe() {
         const { latitude, longitude } = position.coords;
         originInput.value = 'Buscando dirección...';
         try {
-            const response = await fetch(`https://corsproxy.io/?url=https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`);
+            const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`);
             const data = await response.json();
             if (data && data.display_name) {
                 originInput.value = data.display_name;
@@ -612,7 +612,7 @@ async function handleFormSubmit(e) {
 }
 
 async function geocodeAddress(address) {
-    const response = await fetch(`https://corsproxy.io/?url=https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&countrycodes=es&limit=1`);
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&countrycodes=es&limit=1`);
     const data = await response.json();
     return data.length > 0 ? { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) } : null;
 }
