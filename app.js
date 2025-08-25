@@ -260,8 +260,19 @@ document.addEventListener('DOMContentLoaded', () => {
         platform: navigator.platform
     });
     
-    // Verificar permisos de geolocalización al cargar (especialmente para Android)
-    checkInitialGeolocationPermissions();
+    // Verificación de permisos deshabilitada temporalmente - causaba problemas en Android
+    // checkInitialGeolocationPermissions();
+    
+    // Mostrar botón de permisos en Android automáticamente
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    const isMobile = isMobileDevice();
+    if (isAndroid && isMobile) {
+        const permissionHelper = document.getElementById('permission-helper');
+        if (permissionHelper) {
+            permissionHelper.classList.remove('d-none');
+            console.log('Botón de permisos mostrado para Android');
+        }
+    }
     
     manualSearchBtn = document.getElementById('manual-search-button');
     
@@ -282,6 +293,33 @@ document.addEventListener('DOMContentLoaded', () => {
     settingsBtn.addEventListener('click', () => settingsPanel.classList.toggle('d-none'));
     searchRadiusSlider.addEventListener('input', e => { searchRadiusLabel.textContent = e.target.value; });
     locateBtn.addEventListener('click', handleLocateMe);
+    
+    // Event listener para el botón de solicitar permisos
+    const requestPermissionBtn = document.getElementById('request-permission-btn');
+    if (requestPermissionBtn) {
+        requestPermissionBtn.addEventListener('click', async () => {
+            console.log('Solicitando permisos explícitamente...');
+            requestPermissionBtn.disabled = true;
+            requestPermissionBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Solicitando...';
+            
+            try {
+                const hasPermission = await forceLocationPermissionRequest();
+                if (hasPermission) {
+                    alert('✅ Permisos concedidos. Ahora puedes usar el botón de ubicación.');
+                    document.getElementById('permission-helper').classList.add('d-none');
+                } else {
+                    alert('❌ Permisos denegados. Ve a configuración del navegador para activarlos manualmente.');
+                }
+            } catch (error) {
+                console.error('Error al solicitar permisos:', error);
+                alert('Error al solicitar permisos. Intenta desde configuración del navegador.');
+            } finally {
+                requestPermissionBtn.disabled = false;
+                requestPermissionBtn.innerHTML = '<i class="bi bi-shield-check"></i> Solicitar permisos de ubicación';
+            }
+        });
+    }
+    
     setupAutocomplete(originInput, originSuggestions);
     setupAutocomplete(destinationInput, destinationSuggestions);
 
@@ -515,77 +553,66 @@ function handleLocateMe() {
     locateBtn.disabled = true;
     locateBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>`;
 
-    // Verificar permisos primero (especialmente para Android)
-    checkGeolocationPermission().then(async (hasPermission) => {
-        if (!hasPermission) {
-            alert('Necesitas conceder permisos de ubicación para usar esta función. Ve a configuración de tu navegador/app y permite el acceso a la ubicación.');
-            locateBtn.disabled = false;
-            locateBtn.innerHTML = originalBtnContent;
-            return;
-        }
+    // Opciones para FORZAR la petición de permisos en Android
+    const options = {
+        enableHighAccuracy: true, // Esto fuerza la petición de permisos
+        timeout: 20000, // Más tiempo para que el usuario pueda responder
+        maximumAge: 0 // NUNCA usar cache - siempre pedir nueva ubicación
+    };
 
-        // Opciones optimizadas para móviles Android
-        const options = {
-            enableHighAccuracy: true,
-            timeout: 15000, // 15 segundos
-            maximumAge: 60000 // 1 minuto
-        };
+    console.log('Solicitando ubicación con opciones:', options);
 
-        navigator.geolocation.getCurrentPosition(async (position) => {
-            const { latitude, longitude } = position.coords;
-            originInput.value = 'Buscando dirección...';
-            
-            const apiUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`;
-            
-            try {
-                const response = await fetchNominatim(apiUrl);
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data && data.display_name) {
-                        originInput.value = data.display_name;
-                    } else {
-                        originInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-                    }
+    navigator.geolocation.getCurrentPosition(async (position) => {
+        console.log('Ubicación obtenida:', position.coords);
+        const { latitude, longitude } = position.coords;
+        originInput.value = 'Buscando dirección...';
+        
+        const apiUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`;
+        
+        try {
+            const response = await fetchNominatim(apiUrl);
+            if (response.ok) {
+                const data = await response.json();
+                if (data && data.display_name) {
+                    originInput.value = data.display_name;
                 } else {
                     originInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-                    showToast('No se pudo encontrar la dirección. Se usarán las coordenadas.', 'warning');
                 }
-            } catch (err) {
-                console.error('Reverse geocoding error:', err);
+            } else {
                 originInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-                showToast('No se pudo encontrar la dirección. Se usarán las coordenadas.', 'warning');
-            } finally {
-                locateBtn.disabled = false;
-                locateBtn.innerHTML = originalBtnContent;
+                console.log('No se pudo encontrar la dirección. Se usarán las coordenadas.');
             }
-        }, (error) => {
-            let message;
-            let instructions = '';
-            
-            switch (error.code) {
-                case error.PERMISSION_DENIED:
-                    message = "Permisos de ubicación denegados.";
-                    instructions = "\n\nPara Android:\n1. Ve a Configuración > Aplicaciones\n2. Busca tu navegador\n3. Toca 'Permisos'\n4. Activa 'Ubicación'\n\nPara navegadores web:\n1. Toca el icono de candado/información en la barra de direcciones\n2. Activa 'Ubicación'";
-                    break;
-                case error.POSITION_UNAVAILABLE:
-                    message = "Ubicación no disponible. Verifica que el GPS esté activado.";
-                    instructions = "\n\nAsegúrate de que:\n- El GPS/ubicación esté activado en tu dispositivo\n- Tengas buena señal GPS (sal al exterior si estás en interiores)";
-                    break;
-                case error.TIMEOUT:
-                    message = "Tiempo de espera agotado para obtener la ubicación.";
-                    instructions = "\n\nIntenta:\n- Moverte a un lugar con mejor señal GPS\n- Intentar de nuevo en unos segundos";
-                    break;
-                default:
-                    message = "Error desconocido al obtener la ubicación.";
-                    instructions = "\n\nVerifica que los permisos de ubicación estén activados.";
-                    break;
-            }
-            
-            alert(message + instructions);
+        } catch (err) {
+            console.error('Reverse geocoding error:', err);
+            originInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+            console.log('No se pudo encontrar la dirección. Se usarán las coordenadas.');
+        } finally {
             locateBtn.disabled = false;
             locateBtn.innerHTML = originalBtnContent;
-        }, options);
-    });
+        }
+    }, (error) => {
+        console.error('Error de geolocalización:', error);
+        let message;
+        
+        switch (error.code) {
+            case error.PERMISSION_DENIED:
+                message = "⚠️ Permisos denegados.\n\nPara activar:\n• Toca el 🔒 en la barra de direcciones\n• Selecciona 'Permitir' para Ubicación\n• O ve a Configuración > Sitios web > Permisos";
+                break;
+            case error.POSITION_UNAVAILABLE:
+                message = "📍 GPS no disponible.\n\n• Activa la ubicación en tu dispositivo\n• Sal al exterior para mejor señal";
+                break;
+            case error.TIMEOUT:
+                message = "⏱️ Tiempo agotado.\n\n• Verifica que el GPS esté activo\n• Intenta de nuevo en unos segundos";
+                break;
+            default:
+                message = "❌ Error de ubicación.\n\nVerifica los permisos de ubicación.";
+                break;
+        }
+        
+        alert(message);
+        locateBtn.disabled = false;
+        locateBtn.innerHTML = originalBtnContent;
+    }, options);
 }
 
 // Función para verificar permisos de geolocalización
@@ -597,12 +624,47 @@ async function checkGeolocationPermission() {
     
     try {
         const permission = await navigator.permissions.query({ name: 'geolocation' });
+        console.log('Estado de permisos de geolocalización:', permission.state);
         return permission.state === 'granted' || permission.state === 'prompt';
     } catch (error) {
         console.warn('No se pudo verificar permisos de geolocalización:', error);
         // Si hay error verificando permisos, intentar de todas formas
         return true;
     }
+}
+
+// Función para forzar la petición de permisos en Android
+function forceLocationPermissionRequest() {
+    return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+            reject(new Error('Geolocalización no soportada'));
+            return;
+        }
+
+        // Configuración específica para FORZAR la petición de permisos
+        const options = {
+            enableHighAccuracy: true, // Esto dispara la petición de permisos
+            timeout: 1000, // Muy corto para fallar rápido si no hay permisos
+            maximumAge: 0 // Nunca usar cache
+        };
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                console.log('Permisos concedidos, ubicación obtenida');
+                resolve(true);
+            },
+            (error) => {
+                if (error.code === error.PERMISSION_DENIED) {
+                    console.log('Permisos denegados por el usuario');
+                    resolve(false);
+                } else {
+                    console.log('Error temporal, permisos probablemente disponibles');
+                    resolve(true);
+                }
+            },
+            options
+        );
+    });
 }
 
 // Función para mostrar mensajes toast (si no existe)

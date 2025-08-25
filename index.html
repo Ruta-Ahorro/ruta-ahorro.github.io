@@ -287,10 +287,13 @@
                         </button>
                     </div>
                     <div id="origin-suggestions" class="position-absolute z-3 w-100 bg-body border border-secondary-subtle rounded-bottom mt-1 d-none shadow-lg list-group"></div>
-                    <!-- Aviso de permisos para Android -->
-                    <small id="location-permission-hint" class="text-muted d-none">
-                        <i class="bi bi-info-circle"></i> Si no funciona, verifica los permisos de ubicación en tu navegador/app
-                    </small>
+                    <!-- Botón para solicitar permisos explícitamente -->
+                    <div id="permission-helper" class="d-none mt-1">
+                        <button type="button" id="request-permission-btn" class="btn btn-sm btn-warning">
+                            <i class="bi bi-shield-check"></i> Solicitar permisos de ubicación
+                        </button>
+                        <small class="text-muted d-block mt-1">Si el GPS no funciona, usa este botón primero</small>
+                    </div>
                 </div>
                 <div class="mb-2 position-relative">
                     <input type="text" id="destination" name="destination" class="form-control" placeholder="Destino" required>
