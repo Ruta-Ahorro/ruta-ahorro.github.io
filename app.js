@@ -42,6 +42,204 @@ function showSpinner() {
 function hideSpinner() {
     spinnerOverlay.classList.add('d-none');
 }
+
+// Detectar si es dispositivo móvil
+function isMobileDevice() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+           (navigator.maxTouchPoints && navigator.maxTouchPoints > 2 && /MacIntel/.test(navigator.platform));
+}
+
+// Función específica para Nominatim que funciona mejor con llamadas directas en móviles
+async function fetchNominatim(url, options = {}) {
+    const isMobile = isMobileDevice();
+    console.log(`FetchNominatim called - Mobile: ${isMobile}, URL: ${url}`);
+    
+    if (isMobile) {
+        // En móviles, usar llamada directa (la que funciona mejor)
+        try {
+            console.log('Using direct fetch for Nominatim on mobile');
+            const response = await fetch(url, {
+                ...options,
+                mode: 'cors',
+                credentials: 'omit',
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Mobile; rv:100.0) Gecko/100.0 Firefox/100.0',
+                    'Accept': 'application/json, text/plain, */*',
+                    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache',
+                    'Referer': '',
+                    ...options.headers
+                }
+            });
+            
+            if (response.ok) {
+                console.log('Direct Nominatim fetch successful on mobile');
+                return response;
+            }
+            throw new Error(`Direct fetch failed with status: ${response.status}`);
+        } catch (error) {
+            console.warn('Direct Nominatim fetch failed on mobile, trying proxies:', error);
+            // Si falla, usar safeFetch como fallback
+            return await safeFetch(url, options);
+        }
+    } else {
+        // En escritorio, usar safeFetch normal
+        return await safeFetch(url, options);
+    }
+}
+
+// Función para hacer fetch con estrategia específica para móviles
+async function safeFetch(url, options = {}) {
+    const isMobile = isMobileDevice();
+    console.log(`SafeFetch called - Mobile: ${isMobile}, URL: ${url}`);
+    
+    // Para APIs del gobierno español, siempre usar corsproxy.io primero (funciona mejor)
+    const isSpanishGovAPI = url.includes('minetur.gob.es') || url.includes('sedeaplicaciones');
+    
+    if (isSpanishGovAPI) {
+        console.log('Detected Spanish government API, using corsproxy.io directly');
+        try {
+            const proxiedUrl = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
+            const response = await fetch(proxiedUrl, {
+                ...options,
+                headers: {
+                    'Accept': 'application/json, text/plain, */*',
+                    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+                    ...options.headers
+                }
+            });
+            
+            if (response.ok) {
+                console.log('Spanish gov API fetch successful with corsproxy.io');
+                return response;
+            }
+        } catch (error) {
+            console.warn('Corsproxy.io failed for Spanish gov API:', error);
+        }
+    }
+    
+    if (isMobile) {
+        // En móviles, PRIORIZAR la llamada directa que funciona mejor para Nominatim
+        try {
+            console.log('Trying direct mobile fetch first (works best for Nominatim)');
+            const response = await fetch(url, {
+                ...options,
+                mode: 'cors',
+                credentials: 'omit',
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Mobile; rv:100.0) Gecko/100.0 Firefox/100.0',
+                    'Accept': 'application/json, text/plain, */*',
+                    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache',
+                    ...options.headers
+                }
+            });
+            
+            if (response.ok) {
+                console.log('Direct mobile fetch successful');
+                return response;
+            }
+        } catch (error) {
+            console.warn('Direct mobile fetch failed:', error);
+        }
+        
+        // Fallback a proxies solo si la llamada directa falla
+        const mobileProxies = [
+            'https://corsproxy.io/?url=',
+            'https://api.allorigins.win/get?url='
+        ];
+        
+        for (const proxy of mobileProxies) {
+            try {
+                console.log(`Trying mobile proxy fallback: ${proxy}`);
+                let fetchUrl, response;
+                
+                if (proxy.includes('allorigins')) {
+                    fetchUrl = proxy + encodeURIComponent(url);
+                    response = await fetch(fetchUrl, {
+                        ...options,
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Mobile; rv:100.0) Gecko/100.0 Firefox/100.0',
+                            ...options.headers
+                        }
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        console.log(`Mobile proxy ${proxy} success`);
+                        return {
+                            ok: true,
+                            json: async () => JSON.parse(data.contents)
+                        };
+                    }
+                } else {
+                    // corsproxy.io
+                    fetchUrl = proxy + encodeURIComponent(url);
+                    response = await fetch(fetchUrl, {
+                        ...options,
+                        mode: 'cors',
+                        credentials: 'omit',
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Mobile; rv:100.0) Gecko/100.0 Firefox/100.0',
+                            'Accept': 'application/json, text/plain, */*',
+                            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+                            ...options.headers
+                        }
+                    });
+                    if (response.ok) {
+                        console.log(`Mobile proxy ${proxy} success`);
+                        return response;
+                    }
+                }
+            } catch (error) {
+                console.warn(`Mobile proxy ${proxy} failed:`, error);
+                continue;
+            }
+        }
+        
+        console.error('All mobile strategies failed');
+        throw new Error('Mobile fetch failed: All strategies exhausted');
+        
+    } else {
+        // En escritorio, usar corsproxy.io primero para todas las APIs
+        const proxies = [
+            'https://corsproxy.io/?url=',
+            'https://api.allorigins.win/get?url='
+        ];
+        
+        for (const proxy of proxies) {
+            try {
+                let fetchUrl, response;
+                
+                if (proxy.includes('allorigins')) {
+                    fetchUrl = proxy + encodeURIComponent(url);
+                    response = await fetch(fetchUrl, options);
+                    if (response.ok) {
+                        const data = await response.json();
+                        return {
+                            ok: true,
+                            json: async () => JSON.parse(data.contents)
+                        };
+                    }
+                } else {
+                    // corsproxy.io
+                    fetchUrl = proxy + encodeURIComponent(url);
+                    response = await fetch(fetchUrl, options);
+                    if (response.ok) {
+                        return response;
+                    }
+                }
+            } catch (error) {
+                console.warn(`Proxy ${proxy} failed:`, error);
+                continue;
+            }
+        }
+        
+        // Fallback directo para escritorio
+        return await fetch(url, options);
+    }
+}
 let map;
 let routeLayer;
 let stationMarkers = L.layerGroup();
@@ -52,6 +250,16 @@ let manualSearchBtn; // Declarar como variable global
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
+    // Log información del dispositivo para debugging
+    console.log('Device info:', {
+        userAgent: navigator.userAgent,
+        isMobile: isMobileDevice(),
+        screen: { width: screen.width, height: screen.height },
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        touchPoints: navigator.maxTouchPoints,
+        platform: navigator.platform
+    });
+    
     manualSearchBtn = document.getElementById('manual-search-button');
     
     // Deshabilitar inmediatamente hasta que se carguen las gasolineras
@@ -256,7 +464,9 @@ function setupAutocomplete(inputEl, suggestionsEl) {
 
 async function fetchSuggestions(query, suggestionsEl, inputEl) {
     try {
-        const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=es&limit=5`);
+        const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=es&limit=5`;
+        
+        const response = await fetchNominatim(apiUrl);
         if (!response.ok) {
             suggestionsEl.classList.add('d-none');
             return;
@@ -305,15 +515,24 @@ function handleLocateMe() {
     navigator.geolocation.getCurrentPosition(async (position) => {
         const { latitude, longitude } = position.coords;
         originInput.value = 'Buscando dirección...';
+        
+        const apiUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`;
+        
         try {
-            const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`);
-            const data = await response.json();
-            if (data && data.display_name) {
-                originInput.value = data.display_name;
+            const response = await fetchNominatim(apiUrl);
+            if (response.ok) {
+                const data = await response.json();
+                if (data && data.display_name) {
+                    originInput.value = data.display_name;
+                } else {
+                    originInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+                }
             } else {
                 originInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+                alert('No se pudo encontrar la dirección. Se usarán las coordenadas.');
             }
         } catch (err) {
+            console.error('Reverse geocoding error:', err);
             originInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
             alert('No se pudo encontrar la dirección. Se usarán las coordenadas.');
         } finally {
@@ -376,8 +595,6 @@ function showMessage(type, text) {
  */
 async function fetchGasStations() {
     showSpinner();
-    // The old message is redundant now
-    // showMessage('loading', 'Cargando datos de gasolineras...');
     searchButton.disabled = true;
     searchButton.classList.add('disabled');
     
@@ -392,61 +609,32 @@ async function fetchGasStations() {
 
     const apiUrl = 'https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/';
     
-    // List of proxies to try in order.
-    const proxies = [
-       // { url: 'https://api.allorigins.win/get?url=', type: 'allorigins' },
-        { url: 'https://corsproxy.io/?url=', type: 'direct' }
-    ];
-
-    let jsonData = null;
-
-    for (const proxy of proxies) {
-        try {
-            console.log(`Intentando con el proxy: ${proxy.url}`);
-            // Construct the full URL based on the proxy type
-            const fetchUrl = proxy.type === 'direct' 
-                ? proxy.url + apiUrl 
-                : proxy.url + encodeURIComponent(apiUrl);
-            
-            const response = await fetch(fetchUrl);
-
-            if (!response.ok) {
-                throw new Error(`La petición al proxy falló con estado ${response.status}`);
-            }
-            
-            // Handle different proxy response formats
-            if (proxy.type === 'allorigins') {
-                const data = await response.json();
-                jsonData = JSON.parse(data.contents);
-            } else {
-                jsonData = await response.json();
-                console.log(jsonData)
-            }
-
-            // Check if the actual API data is valid by looking for the gas station list
-            if (jsonData && jsonData.ListaEESSPrecio && Array.isArray(jsonData.ListaEESSPrecio)) {
-                console.log(`Datos obtenidos correctamente con el proxy: ${proxy.url}`);
-                break; // Success, exit the loop
-            } else {
-                jsonData = null; // Reset to null to allow the next proxy to be tried
-                throw new Error('El proxy funcionó, pero la API devolvió un error o datos no válidos.');
-            }
-
-        } catch (error) {
-            console.warn(`El proxy ${proxy.url} falló. Probando el siguiente. Error:`, error);
-        }
-    }
-
-    hideSpinner();
-
-    if (!jsonData) {
-        console.error("Todos los proxies fallaron.");
-        showMessage('error', 'Error de conexión: No se pudieron cargar los datos de las gasolineras del gobierno. El servicio puede estar temporalmente caído. Por favor, inténtalo de nuevo más tarde.');
-        return; // Stop execution if data loading fails
-    }
-
-    // Process the successfully fetched data
     try {
+        console.log('Cargando gasolineras usando corsproxy.io (el que funciona mejor)...');
+        
+        // Usar directamente corsproxy.io que es el que funciona para gasolineras
+        const proxiedUrl = `https://corsproxy.io/?url=${encodeURIComponent(apiUrl)}`;
+        const response = await fetch(proxiedUrl, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`La petición falló con estado ${response.status}`);
+        }
+        
+        const jsonData = await response.json();
+        
+        if (!jsonData || !jsonData.ListaEESSPrecio || !Array.isArray(jsonData.ListaEESSPrecio)) {
+            throw new Error('Datos de gasolineras no válidos recibidos');
+        }
+        
+        console.log('Datos de gasolineras cargados correctamente con corsproxy.io');
+        
+        // Process the successfully fetched data
         allGasStations = jsonData.ListaEESSPrecio
             .map(s => ({
                 id: s['IDEESS'], name: s['Rótulo'], address: `${s['Dirección']}, ${s['Localidad']}`,
@@ -476,13 +664,13 @@ async function fetchGasStations() {
             console.log('Habilitando botón manual después de cargar gasolineras');
             manualSearchBtn.disabled = false;
             manualSearchBtn.classList.remove('disabled');
-        } else {
-            console.error('No se pudo habilitar el botón manual - elemento no encontrado');
         }
-
+        
     } catch (error) {
-        console.error("Error procesando los datos de las gasolineras:", error);
-        showMessage('error', 'Se recibió una respuesta inesperada del servicio de gasolineras.');
+        console.error("Error cargando gasolineras:", error);
+        showMessage('error', 'Error de conexión: No se pudieron cargar los datos de las gasolineras del gobierno. El servicio puede estar temporalmente caído. Por favor, inténtalo de nuevo más tarde.');
+    } finally {
+        hideSpinner();
     }
 }
 
@@ -612,9 +800,19 @@ async function handleFormSubmit(e) {
 }
 
 async function geocodeAddress(address) {
-    const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&countrycodes=es&limit=1`);
-    const data = await response.json();
-    return data.length > 0 ? { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) } : null;
+    const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&countrycodes=es&limit=1`;
+    
+    try {
+        const response = await fetchNominatim(apiUrl);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        return data.length > 0 ? { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) } : null;
+    } catch (error) {
+        console.error('Geocoding error:', error);
+        return null;
+    }
 }
 
 async function getRoute(origin, dest) {
