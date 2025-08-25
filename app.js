@@ -54,7 +54,7 @@ async function fetchNominatim(url, options = {}) {
     const isMobile = isMobileDevice();
     console.log(`FetchNominatim called - Mobile: ${isMobile}, URL: ${url}`);
     
-    if (isMobile) {
+    if (true) {
         // En móviles, usar llamada directa (la que funciona mejor)
         try {
             console.log('Using direct fetch for Nominatim on mobile');
@@ -259,6 +259,9 @@ document.addEventListener('DOMContentLoaded', () => {
         touchPoints: navigator.maxTouchPoints,
         platform: navigator.platform
     });
+    
+    // Verificar permisos de geolocalización al cargar (especialmente para Android)
+    checkInitialGeolocationPermissions();
     
     manualSearchBtn = document.getElementById('manual-search-button');
     
@@ -512,53 +515,178 @@ function handleLocateMe() {
     locateBtn.disabled = true;
     locateBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>`;
 
-    navigator.geolocation.getCurrentPosition(async (position) => {
-        const { latitude, longitude } = position.coords;
-        originInput.value = 'Buscando dirección...';
-        
-        const apiUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`;
-        
-        try {
-            const response = await fetchNominatim(apiUrl);
-            if (response.ok) {
-                const data = await response.json();
-                if (data && data.display_name) {
-                    originInput.value = data.display_name;
-                } else {
-                    originInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-                }
-            } else {
-                originInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-                alert('No se pudo encontrar la dirección. Se usarán las coordenadas.');
-            }
-        } catch (err) {
-            console.error('Reverse geocoding error:', err);
-            originInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-            alert('No se pudo encontrar la dirección. Se usarán las coordenadas.');
-        } finally {
+    // Verificar permisos primero (especialmente para Android)
+    checkGeolocationPermission().then(async (hasPermission) => {
+        if (!hasPermission) {
+            alert('Necesitas conceder permisos de ubicación para usar esta función. Ve a configuración de tu navegador/app y permite el acceso a la ubicación.');
             locateBtn.disabled = false;
             locateBtn.innerHTML = originalBtnContent;
+            return;
         }
-    }, (error) => {
-        let message;
-        switch (error.code) {
-            case error.PERMISSION_DENIED:
-                message = "Has denegado el permiso para la geolocalización.";
-                break;
-            case error.POSITION_UNAVAILABLE:
-                message = "La información de ubicación no está disponible.";
-                break;
-            case error.TIMEOUT:
-                message = "La solicitud para obtener la ubicación ha caducado.";
-                break;
-            default:
-                message = "Ha ocurrido un error desconocido al obtener la ubicación.";
-                break;
-        }
-        alert(message);
-        locateBtn.disabled = false;
-        locateBtn.innerHTML = originalBtnContent;
+
+        // Opciones optimizadas para móviles Android
+        const options = {
+            enableHighAccuracy: true,
+            timeout: 15000, // 15 segundos
+            maximumAge: 60000 // 1 minuto
+        };
+
+        navigator.geolocation.getCurrentPosition(async (position) => {
+            const { latitude, longitude } = position.coords;
+            originInput.value = 'Buscando dirección...';
+            
+            const apiUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`;
+            
+            try {
+                const response = await fetchNominatim(apiUrl);
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data && data.display_name) {
+                        originInput.value = data.display_name;
+                    } else {
+                        originInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+                    }
+                } else {
+                    originInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+                    showToast('No se pudo encontrar la dirección. Se usarán las coordenadas.', 'warning');
+                }
+            } catch (err) {
+                console.error('Reverse geocoding error:', err);
+                originInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+                showToast('No se pudo encontrar la dirección. Se usarán las coordenadas.', 'warning');
+            } finally {
+                locateBtn.disabled = false;
+                locateBtn.innerHTML = originalBtnContent;
+            }
+        }, (error) => {
+            let message;
+            let instructions = '';
+            
+            switch (error.code) {
+                case error.PERMISSION_DENIED:
+                    message = "Permisos de ubicación denegados.";
+                    instructions = "\n\nPara Android:\n1. Ve a Configuración > Aplicaciones\n2. Busca tu navegador\n3. Toca 'Permisos'\n4. Activa 'Ubicación'\n\nPara navegadores web:\n1. Toca el icono de candado/información en la barra de direcciones\n2. Activa 'Ubicación'";
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    message = "Ubicación no disponible. Verifica que el GPS esté activado.";
+                    instructions = "\n\nAsegúrate de que:\n- El GPS/ubicación esté activado en tu dispositivo\n- Tengas buena señal GPS (sal al exterior si estás en interiores)";
+                    break;
+                case error.TIMEOUT:
+                    message = "Tiempo de espera agotado para obtener la ubicación.";
+                    instructions = "\n\nIntenta:\n- Moverte a un lugar con mejor señal GPS\n- Intentar de nuevo en unos segundos";
+                    break;
+                default:
+                    message = "Error desconocido al obtener la ubicación.";
+                    instructions = "\n\nVerifica que los permisos de ubicación estén activados.";
+                    break;
+            }
+            
+            alert(message + instructions);
+            locateBtn.disabled = false;
+            locateBtn.innerHTML = originalBtnContent;
+        }, options);
     });
+}
+
+// Función para verificar permisos de geolocalización
+async function checkGeolocationPermission() {
+    if (!navigator.permissions) {
+        // Si no hay API de permisos, asumir que está disponible
+        return true;
+    }
+    
+    try {
+        const permission = await navigator.permissions.query({ name: 'geolocation' });
+        return permission.state === 'granted' || permission.state === 'prompt';
+    } catch (error) {
+        console.warn('No se pudo verificar permisos de geolocalización:', error);
+        // Si hay error verificando permisos, intentar de todas formas
+        return true;
+    }
+}
+
+// Función para mostrar mensajes toast (si no existe)
+function showToast(message, type = 'info') {
+    // Si no hay sistema de toast, usar alert como fallback
+    if (typeof bootstrap === 'undefined' || !bootstrap.Toast) {
+        console.log(`${type.toUpperCase()}: ${message}`);
+        return;
+    }
+    
+    // Crear toast si bootstrap está disponible
+    const toastContainer = document.getElementById('toast-container') || createToastContainer();
+    const toastEl = document.createElement('div');
+    toastEl.className = `toast align-items-center text-bg-${type} border-0`;
+    toastEl.innerHTML = `
+        <div class="d-flex">
+            <div class="toast-body">${message}</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    `;
+    
+    toastContainer.appendChild(toastEl);
+    const toast = new bootstrap.Toast(toastEl);
+    toast.show();
+    
+    // Limpiar después de mostrar
+    toastEl.addEventListener('hidden.bs.toast', () => {
+        toastEl.remove();
+    });
+}
+
+function createToastContainer() {
+    const container = document.createElement('div');
+    container.id = 'toast-container';
+    container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+    container.style.zIndex = '1055';
+    document.body.appendChild(container);
+    return container;
+}
+
+// Función para verificar permisos al cargar la página
+async function checkInitialGeolocationPermissions() {
+    if (!navigator.geolocation) {
+        return;
+    }
+
+    const isMobile = isMobileDevice();
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    
+    if (isMobile && isAndroid) {
+        try {
+            const permission = await navigator.permissions.query({ name: 'geolocation' });
+            const hintElement = document.getElementById('location-permission-hint');
+            
+            if (permission.state === 'denied') {
+                console.log('Permisos de geolocalización denegados');
+                if (hintElement) {
+                    hintElement.textContent = '⚠️ Permisos de ubicación denegados. Actívalos en configuración para usar tu ubicación.';
+                    hintElement.classList.remove('d-none');
+                    hintElement.classList.add('text-warning');
+                }
+            } else if (permission.state === 'prompt') {
+                console.log('Permisos de geolocalización pendientes');
+                if (hintElement) {
+                    hintElement.textContent = '💡 Toca el botón de ubicación para permitir el acceso a tu posición.';
+                    hintElement.classList.remove('d-none');
+                    hintElement.classList.add('text-info');
+                }
+            } else if (permission.state === 'granted') {
+                console.log('Permisos de geolocalización concedidos');
+            }
+            
+            // Escuchar cambios en los permisos
+            permission.onchange = () => {
+                console.log('Cambio en permisos de geolocalización:', permission.state);
+                if (permission.state === 'granted' && hintElement) {
+                    hintElement.classList.add('d-none');
+                }
+            };
+            
+        } catch (error) {
+            console.warn('No se pudo verificar permisos de geolocalización:', error);
+        }
+    }
 }
 
 function initializeMap() {

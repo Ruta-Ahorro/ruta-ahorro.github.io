@@ -1,5 +1,5 @@
-// A name for our cache
-const CACHE_NAME = 'gas-ruta-cache-v1';
+// A name for our cache - INCREMENTAR VERSION PARA FORZAR ACTUALIZACIÓN
+const CACHE_NAME = 'gas-ruta-cache-v2.1';
 
 // The URLs we want to cache. These are the "app shell" files.
 const urlsToCache = [
@@ -19,12 +19,15 @@ const urlsToCache = [
 // Listen for the 'install' event.
 // This is where we will cache our app shell files.
 self.addEventListener('install', event => {
-    console.log('Service Worker: Installing...');
+    console.log('Service Worker: Installing v2.1...');
+    // Forzar la activación inmediata del nuevo service worker
+    self.skipWaiting();
+    
     // waitUntil() ensures that the service worker will not install until the code inside has successfully completed.
     event.waitUntil(
         caches.open(CACHE_NAME)
             .then(cache => {
-                console.log('Service Worker: Caching app shell');
+                console.log('Service Worker: Caching app shell v2.1');
                 // Add all the specified URLs to the cache.
                 return cache.addAll(urlsToCache);
             })
@@ -34,25 +37,56 @@ self.addEventListener('install', event => {
 // Listen for the 'fetch' event.
 // This event fires every time the app requests a resource (e.g., a page, script, image).
 self.addEventListener('fetch', event => {
-    // respondWith() hijacks the request and allows us to provide our own response.
-    event.respondWith(
-        // Check if the request is already in the cache.
-        caches.match(event.request)
-            .then(response => {
-                // If we have a cached response, return it.
-                if (response) {
+    // Para archivos críticos (.html, .js), priorizar la red sobre el cache
+    const isCriticalFile = event.request.url.includes('.html') || 
+                          event.request.url.includes('.js') || 
+                          event.request.url.includes('app.js') ||
+                          event.request.url.includes('index.html');
+    
+    if (isCriticalFile) {
+        // Network first para archivos críticos
+        event.respondWith(
+            fetch(event.request)
+                .then(response => {
+                    // Si la red funciona, actualizar cache y devolver respuesta
+                    if (response && response.status === 200) {
+                        const responseClone = response.clone();
+                        caches.open(CACHE_NAME)
+                            .then(cache => {
+                                cache.put(event.request, responseClone);
+                            });
+                    }
                     return response;
+                })
+                .catch(() => {
+                    // Si la red falla, usar cache como fallback
+                    return caches.match(event.request);
+                })
+        );
+    } else {
+        // Cache first para otros recursos (CSS, imágenes, etc.)
+        event.respondWith(
+            caches.match(event.request)
+                .then(response => {
+                    // If we have a cached response, return it.
+                    if (response) {
+                        return response;
+                    }
+                    // If the request is not in the cache, fetch it from the network.
+                    return fetch(event.request);
                 }
-                // If the request is not in the cache, fetch it from the network.
-                return fetch(event.request);
-            }
-        )
-    );
+            )
+        );
+    }
 });
 
 // Listen for the 'activate' event.
 // This is a good place to manage old caches.
 self.addEventListener('activate', event => {
+    console.log('Service Worker: Activating v2.1...');
+    // Tomar control inmediatamente de todos los clientes
+    clients.claim();
+    
     const cacheWhitelist = [CACHE_NAME];
     event.waitUntil(
         caches.keys().then(cacheNames => {
