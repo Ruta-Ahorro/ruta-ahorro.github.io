@@ -4,19 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="referrer" content="no-referrer-when-downgrade">
-    <meta name="cache-version" content="v2.1-20250825">
-    
-    <!-- Anti-cache headers para evitar versiones antiguas -->
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-    
+
     <!-- Permisos específicos para Android -->
     <meta name="format-detection" content="telephone=no">
     <meta name="msapplication-tap-highlight" content="no">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="GasRuta">
     
     <title>Optimizador de Rutas de Gasolina</title>
     <meta name="description" content="Encuentra las gasolineras más baratas en tu ruta y planifica tus paradas para ahorrar dinero en cada viaje.">
@@ -24,7 +19,6 @@
     <!-- Preconnect to key origins for performance -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="preconnect" href="https://corsproxy.io">
     <link rel="preconnect" href="https://unpkg.com">
     <link rel="preconnect" href="https://a.tile.openstreetmap.org" crossorigin>
     <link rel="preconnect" href="https://b.tile.openstreetmap.org" crossorigin>
@@ -38,18 +32,15 @@
     <link rel="preload" href="https://c.tile.openstreetmap.org/6/30/23.png" as="image" fetchpriority="high">
     <!-- PWA Manifest and Theme Color -->
     <meta name="theme-color" content="#4f46e5"/>
-    <link rel="apple-touch-icon" href="https://placehold.co/192x192/4f46e5/white?text=⛽️">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="mobile-web-app-status-bar-style" content="black">
-    <meta name="mobile-web-app-title" content="GasRuta">
+    <link rel="apple-touch-icon" href="/logo192.png">
     <link rel="manifest" href="/manifest.json">
     
     <!-- Scripts (deferred to be non-blocking) -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <script rel="preload" src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous" defer></script>
-    <script rel="preload" src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script>
-    <script rel="preload" src='https://unpkg.com/@turf/turf@6/turf.min.js' defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous" defer></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script>
+    <script src='https://unpkg.com/@turf/turf@6/turf.min.js' defer></script>
 
     <!-- LeafletJS for Map (synchronous) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
@@ -345,38 +336,28 @@
                 </button>
                 <p class="form-text mt-1 small text-muted">Elige tus propias paradas de una lista de las 15 gasolineras más baratas en la ruta.</p>
             </form>
-
-            <!-- Summary Section (hidden by default) -->
-            
         </div>
 
         <!-- Results Section -->
-        <div id="results-container" class=" flex-grow-1 overflow-y-auto d-none">
-            <div id="results" class="space-y-3 ">
-                
+        <div id="results-container" class="flex-grow-1 overflow-y-auto d-none">
+            <div id="results" class="space-y-3">
                 <!-- Results will be injected here -->
             </div>
-              <button type="button" id="new-route-btn" class="btn btn-secondary w-100 fw-bold py-2 mt-2">
-                 Nueva Ruta
-                </button><!--
-            <div id="summary-container" class="d-none">
-                 <button type="button" id="new-route-btn" class="btn btn-secondary w-100 fw-bold py-2 mt-2">
-                 Nueva Ruta
-                </button>
-                <h3 class="h5 fw-bold text-body-emphasis mb-2 mt-2">Resumen del Viaje</h3>
-                 <div id="summary-content" class="p-3 bg-body-tertiary rounded-3 border">
-                     
-                 </div>
--->
-            </div>
-        <!-- Loading/M
+            <button type="button" id="new-route-btn" class="btn btn-secondary w-100 fw-bold py-2 mt-2">
+                Nueva Ruta
+            </button>
         </div>
-essage Section -->
+
+        <!-- Loading/Message Section -->
         <div id="message-container" class="mt-2 flex-grow-1 d-flex align-items-center justify-content-center text-center">
             <div id="message-content">
                 <p class="text-muted">Introduce una ruta para comenzar.</p>
             </div>
         </div>
+
+        <footer class="flex-shrink-0 text-center mt-2">
+            <a href="privacidad.html" class="small text-muted">Política de privacidad</a>
+        </footer>
     </aside>
 
     <!-- Map Container -->

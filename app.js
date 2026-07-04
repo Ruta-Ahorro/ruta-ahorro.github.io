@@ -49,195 +49,26 @@ function isMobileDevice() {
            (navigator.maxTouchPoints && navigator.maxTouchPoints > 2 && /MacIntel/.test(navigator.platform));
 }
 
-// Función específica para Nominatim que funciona mejor con llamadas directas en móviles
+// Llamadas a Nominatim: fetch directo (soporta CORS) con proxy como respaldo.
+// No se envían cabeceras como User-Agent o Referer: son cabeceras prohibidas
+// que el navegador ignora y solo provocan preflights CORS innecesarios.
 async function fetchNominatim(url, options = {}) {
-    const isMobile = isMobileDevice();
-    console.log(`FetchNominatim called - Mobile: ${isMobile}, URL: ${url}`);
-    
-    if (true) {
-        // En móviles, usar llamada directa (la que funciona mejor)
-        try {
-            console.log('Using direct fetch for Nominatim on mobile');
-            const response = await fetch(url, {
-                ...options,
-                mode: 'cors',
-                credentials: 'omit',
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Mobile; rv:100.0) Gecko/100.0 Firefox/100.0',
-                    'Accept': 'application/json, text/plain, */*',
-                    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-                    'Cache-Control': 'no-cache',
-                    'Pragma': 'no-cache',
-                    'Referer': '',
-                    ...options.headers
-                }
-            });
-            
-            if (response.ok) {
-                console.log('Direct Nominatim fetch successful on mobile');
-                return response;
+    try {
+        const response = await fetch(url, {
+            ...options,
+            headers: {
+                'Accept': 'application/json',
+                ...options.headers
             }
-            throw new Error(`Direct fetch failed with status: ${response.status}`);
-        } catch (error) {
-            console.warn('Direct Nominatim fetch failed on mobile, trying proxies:', error);
-            // Si falla, usar safeFetch como fallback
-            return await safeFetch(url, options);
+        });
+        if (response.ok) {
+            return response;
         }
-    } else {
-        // En escritorio, usar safeFetch normal
-        return await safeFetch(url, options);
-    }
-}
-
-// Función para hacer fetch con estrategia específica para móviles
-async function safeFetch(url, options = {}) {
-    const isMobile = isMobileDevice();
-    console.log(`SafeFetch called - Mobile: ${isMobile}, URL: ${url}`);
-    
-    // Para APIs del gobierno español, siempre usar corsproxy.io primero (funciona mejor)
-    const isSpanishGovAPI = url.includes('minetur.gob.es') || url.includes('sedeaplicaciones');
-    
-    if (isSpanishGovAPI) {
-        console.log('Detected Spanish government API, using corsproxy.io directly');
-        try {
-            const proxiedUrl = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
-            const response = await fetch(proxiedUrl, {
-                ...options,
-                headers: {
-                    'Accept': 'application/json, text/plain, */*',
-                    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-                    ...options.headers
-                }
-            });
-            
-            if (response.ok) {
-                console.log('Spanish gov API fetch successful with corsproxy.io');
-                return response;
-            }
-        } catch (error) {
-            console.warn('Corsproxy.io failed for Spanish gov API:', error);
-        }
-    }
-    
-    if (isMobile) {
-        // En móviles, PRIORIZAR la llamada directa que funciona mejor para Nominatim
-        try {
-            console.log('Trying direct mobile fetch first (works best for Nominatim)');
-            const response = await fetch(url, {
-                ...options,
-                mode: 'cors',
-                credentials: 'omit',
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Mobile; rv:100.0) Gecko/100.0 Firefox/100.0',
-                    'Accept': 'application/json, text/plain, */*',
-                    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-                    'Cache-Control': 'no-cache',
-                    'Pragma': 'no-cache',
-                    ...options.headers
-                }
-            });
-            
-            if (response.ok) {
-                console.log('Direct mobile fetch successful');
-                return response;
-            }
-        } catch (error) {
-            console.warn('Direct mobile fetch failed:', error);
-        }
-        
-        // Fallback a proxies solo si la llamada directa falla
-        const mobileProxies = [
-            'https://corsproxy.io/?url=',
-            'https://api.allorigins.win/get?url='
-        ];
-        
-        for (const proxy of mobileProxies) {
-            try {
-                console.log(`Trying mobile proxy fallback: ${proxy}`);
-                let fetchUrl, response;
-                
-                if (proxy.includes('allorigins')) {
-                    fetchUrl = proxy + encodeURIComponent(url);
-                    response = await fetch(fetchUrl, {
-                        ...options,
-                        headers: {
-                            'User-Agent': 'Mozilla/5.0 (Mobile; rv:100.0) Gecko/100.0 Firefox/100.0',
-                            ...options.headers
-                        }
-                    });
-                    if (response.ok) {
-                        const data = await response.json();
-                        console.log(`Mobile proxy ${proxy} success`);
-                        return {
-                            ok: true,
-                            json: async () => JSON.parse(data.contents)
-                        };
-                    }
-                } else {
-                    // corsproxy.io
-                    fetchUrl = proxy + encodeURIComponent(url);
-                    response = await fetch(fetchUrl, {
-                        ...options,
-                        mode: 'cors',
-                        credentials: 'omit',
-                        headers: {
-                            'User-Agent': 'Mozilla/5.0 (Mobile; rv:100.0) Gecko/100.0 Firefox/100.0',
-                            'Accept': 'application/json, text/plain, */*',
-                            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-                            ...options.headers
-                        }
-                    });
-                    if (response.ok) {
-                        console.log(`Mobile proxy ${proxy} success`);
-                        return response;
-                    }
-                }
-            } catch (error) {
-                console.warn(`Mobile proxy ${proxy} failed:`, error);
-                continue;
-            }
-        }
-        
-        console.error('All mobile strategies failed');
-        throw new Error('Mobile fetch failed: All strategies exhausted');
-        
-    } else {
-        // En escritorio, usar corsproxy.io primero para todas las APIs
-        const proxies = [
-            'https://corsproxy.io/?url=',
-            'https://api.allorigins.win/get?url='
-        ];
-        
-        for (const proxy of proxies) {
-            try {
-                let fetchUrl, response;
-                
-                if (proxy.includes('allorigins')) {
-                    fetchUrl = proxy + encodeURIComponent(url);
-                    response = await fetch(fetchUrl, options);
-                    if (response.ok) {
-                        const data = await response.json();
-                        return {
-                            ok: true,
-                            json: async () => JSON.parse(data.contents)
-                        };
-                    }
-                } else {
-                    // corsproxy.io
-                    fetchUrl = proxy + encodeURIComponent(url);
-                    response = await fetch(fetchUrl, options);
-                    if (response.ok) {
-                        return response;
-                    }
-                }
-            } catch (error) {
-                console.warn(`Proxy ${proxy} failed:`, error);
-                continue;
-            }
-        }
-        
-        // Fallback directo para escritorio
-        return await fetch(url, options);
+        throw new Error(`Nominatim respondió con estado ${response.status}`);
+    } catch (error) {
+        console.warn('Fetch directo a Nominatim falló, usando proxy CORS:', error);
+        const proxiedUrl = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
+        return await fetch(proxiedUrl, { headers: { 'Accept': 'application/json' } });
     }
 }
 let map;
@@ -250,19 +81,9 @@ let manualSearchBtn; // Declarar como variable global
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
-    // Log información del dispositivo para debugging
-    console.log('Device info:', {
-        userAgent: navigator.userAgent,
-        isMobile: isMobileDevice(),
-        screen: { width: screen.width, height: screen.height },
-        viewport: { width: window.innerWidth, height: window.innerHeight },
-        touchPoints: navigator.maxTouchPoints,
-        platform: navigator.platform
-    });
-    
     // Verificación de permisos deshabilitada temporalmente - causaba problemas en Android
     // checkInitialGeolocationPermissions();
-    
+
     // Mostrar botón de permisos en Android automáticamente
     const isAndroid = /Android/i.test(navigator.userAgent);
     const isMobile = isMobileDevice();
@@ -270,17 +91,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const permissionHelper = document.getElementById('permission-helper');
         if (permissionHelper) {
             permissionHelper.classList.remove('d-none');
-            console.log('Botón de permisos mostrado para Android');
         }
     }
-    
+
     manualSearchBtn = document.getElementById('manual-search-button');
-    
+
     // Deshabilitar inmediatamente hasta que se carguen las gasolineras
     if (manualSearchBtn) {
         manualSearchBtn.disabled = true;
         manualSearchBtn.classList.add('disabled');
-        console.log('Botón manual deshabilitado inicialmente');
     }
     
     initializeMap();
@@ -337,21 +156,15 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Event listener para búsqueda manual desde la pantalla principal
     if (manualSearchBtn) {
-        console.log('Botón manual encontrado, añadiendo event listener');
-        
         manualSearchBtn.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            
-            console.log('Click detectado en botón manual');
-            
+
             // Verificar si el botón está deshabilitado
             if (manualSearchBtn.disabled || manualSearchBtn.classList.contains('disabled')) {
-                console.log('Botón está deshabilitado, ignorando click');
                 return;
             }
-            
-            console.log('Ejecutando handleManualSearch');
+
             handleManualSearch();
         });
     } else {
@@ -378,14 +191,10 @@ function resetUI() {
 }
 
 async function handleManualSearch() {
-    console.log('handleManualSearch llamado');
     const originText = originInput.value.trim();
     const destinationText = destinationInput.value.trim();
-    
-    console.log('Origen:', originText, 'Destino:', destinationText);
-    
+
     if (!originText || !destinationText) {
-        console.log('Campos vacíos detectados');
         showMessage('error', 'Por favor, introduce tanto el origen como el destino antes de buscar paradas manuales.');
         return;
     }
@@ -456,18 +265,15 @@ async function handleManualSearch() {
         };
 
         hideSpinner();
-        
+
         // Calcular estaciones más baratas directamente aquí
-        console.log('Calculando estaciones más baratas...');
         const cheapestStations = getCheapestStationsOnRoute(
-            routeLine, 
-            params, 
-            allGasStations, 
-            originText, 
+            routeLine,
+            params,
+            allGasStations,
+            originText,
             destinationText
         );
-
-        console.log('Estaciones encontradas:', cheapestStations.length);
 
         if (cheapestStations.length === 0) {
             showMessage('error', 'No se encontraron gasolineras baratas en la ruta. Intenta aumentar la distancia de búsqueda en la configuración.');
@@ -781,49 +587,61 @@ function showMessage(type, text) {
 }
 
 /**
- * Fetches gas station data using a fallback list of CORS proxies for reliability.
+ * Carga los datos de gasolineras.
+ * 1º intenta el JSON estático del propio sitio (actualizado por GitHub Actions,
+ *    sin CORS ni proxies de terceros).
+ * 2º como respaldo, llama a la API del Ministerio a través de un proxy CORS.
  */
 async function fetchGasStations() {
     showSpinner();
     searchButton.disabled = true;
     searchButton.classList.add('disabled');
-    
+
     // Deshabilitar botón de búsqueda manual también
     if (manualSearchBtn) {
-        console.log('Deshabilitando botón manual durante carga');
         manualSearchBtn.disabled = true;
         manualSearchBtn.classList.add('disabled');
-    } else {
-        console.error('No se pudo deshabilitar el botón manual');
     }
 
+    const localDataUrl = '/data/estaciones.json';
     const apiUrl = 'https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/';
-    
+
     try {
-        console.log('Cargando gasolineras usando corsproxy.io (el que funciona mejor)...');
-        
-        // Usar directamente corsproxy.io que es el que funciona para gasolineras
-        const proxiedUrl = `https://corsproxy.io/?url=${encodeURIComponent(apiUrl)}`;
-        const response = await fetch(proxiedUrl, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json, text/plain, */*',
-                'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+        let jsonData = null;
+
+        // 1. Datos estáticos del propio sitio
+        try {
+            const response = await fetch(localDataUrl);
+            if (response.ok) {
+                jsonData = await response.json();
             }
-        });
-        
-        if (!response.ok) {
-            throw new Error(`La petición falló con estado ${response.status}`);
+        } catch (error) {
+            console.warn('No se pudieron cargar los datos estáticos locales:', error);
         }
-        
-        const jsonData = await response.json();
-        
+
+        // 2. Respaldo: API del Ministerio vía proxy CORS
+        if (!jsonData || !Array.isArray(jsonData.ListaEESSPrecio)) {
+            console.warn('Usando la API del Ministerio vía proxy CORS como respaldo...');
+            const proxiedUrl = `https://corsproxy.io/?url=${encodeURIComponent(apiUrl)}`;
+            const response = await fetch(proxiedUrl, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json, text/plain, */*',
+                    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`La petición falló con estado ${response.status}`);
+            }
+
+            jsonData = await response.json();
+        }
+
         if (!jsonData || !jsonData.ListaEESSPrecio || !Array.isArray(jsonData.ListaEESSPrecio)) {
             throw new Error('Datos de gasolineras no válidos recibidos');
         }
-        
-        console.log('Datos de gasolineras cargados correctamente con corsproxy.io');
-        
+
         // Process the successfully fetched data
         allGasStations = jsonData.ListaEESSPrecio
             .map(s => ({
@@ -848,14 +666,13 @@ async function fetchGasStations() {
         showMessage('info', 'Datos cargados. ¡Listo para buscar tu ruta!');
         searchButton.disabled = false;
         searchButton.classList.remove('disabled');
-        
+
         // Habilitar botón de búsqueda manual también
         if (manualSearchBtn) {
-            console.log('Habilitando botón manual después de cargar gasolineras');
             manualSearchBtn.disabled = false;
             manualSearchBtn.classList.remove('disabled');
         }
-        
+
     } catch (error) {
         console.error("Error cargando gasolineras:", error);
         showMessage('error', 'Error de conexión: No se pudieron cargar los datos de las gasolineras del gobierno. El servicio puede estar temporalmente caído. Por favor, inténtalo de nuevo más tarde.');
@@ -1013,8 +830,6 @@ async function getRoute(origin, dest) {
 }
 
 function getCheapestStationsOnRoute(routeLine, params, allGasStations, origin, destination) {
-    console.log('getCheapestStationsOnRoute llamado con:', params.fuelType, 'Total gasolineras:', allGasStations.length);
-    
     const { fuelType, searchRadius, includeRestricted } = params;
     
     // Filtrar estaciones como en el worker
@@ -1029,8 +844,6 @@ function getCheapestStationsOnRoute(routeLine, params, allGasStations, origin, d
         return saleTypeFilter;
     });
 
-    console.log('Candidatas después de filtro tipo:', candidateStations.length);
-
     // Crear bounding box buffeado
     const routeBbox = turf.bbox(routeLine);
     const bufferedBboxPolygon = turf.buffer(turf.bboxPolygon(routeBbox), searchRadius, { units: 'kilometers' });
@@ -1040,8 +853,6 @@ function getCheapestStationsOnRoute(routeLine, params, allGasStations, origin, d
         const point = turf.point([station.lon, station.lat]);
         return turf.booleanPointInPolygon(point, bufferedBboxPolygon);
     });
-
-    console.log('Candidatas después de filtro bbox:', candidateStations.length);
 
     // Filtrado detallado
     const originPoint = turf.point(routeLine.geometry.coordinates[0]);
@@ -1059,15 +870,12 @@ function getCheapestStationsOnRoute(routeLine, params, allGasStations, origin, d
 
             return { ...station, distanceFromStart };
         });
-    
-    console.log('Estaciones después de filtro de distancia a ruta:', stationsOnRoute.length);
-    
+
     const finalStations = stationsOnRoute
         .sort((a, b) => a.prices[fuelType] - b.prices[fuelType]) // Ordenar por precio
         .slice(0, 15) // Tomar las 15 más baratas
         .sort((a, b) => a.distanceFromStart - b.distanceFromStart); // Ordenar por distancia desde origen
 
-    console.log('Estaciones finales encontradas:', finalStations.length);
     return finalStations;
 }
 
@@ -1102,7 +910,6 @@ function updateMapMarkers(stations) {
     });
     
     // Actualizar contador
-    updateSelectionCounter(selectedCheckboxes.length);
     updateSelectionCounter(selectedCheckboxes.length);
 }
 
@@ -1172,8 +979,6 @@ function updateSelectionOrder(stations) {
 }
 
 function showManualRouteOptions(origin, destination, preCalculatedStations = null) {
-    console.log('showManualRouteOptions llamado con:', origin, destination, 'estaciones precalculadas:', preCalculatedStations ? preCalculatedStations.length : 'ninguna');
-    
     if (!currentRouteData) {
         alert('No hay datos de ruta disponibles. Por favor, calcula una ruta primero.');
         return;
@@ -1185,22 +990,19 @@ function showManualRouteOptions(origin, destination, preCalculatedStations = nul
     }
 
     let cheapestStations;
-    
+
     if (preCalculatedStations) {
         // Usar estaciones pre-calculadas
         cheapestStations = preCalculatedStations;
-        console.log('Usando estaciones precalculadas:', cheapestStations.length);
     } else {
         // Calcular estaciones (flujo original)
-        console.log('Calculando estaciones en showManualRouteOptions...');
         cheapestStations = getCheapestStationsOnRoute(
-            currentRouteData.routeLine, 
-            currentRouteData.params, 
-            allGasStations, 
-            origin, 
+            currentRouteData.routeLine,
+            currentRouteData.params,
+            allGasStations,
+            origin,
             destination
         );
-        console.log('Estaciones calculadas:', cheapestStations.length);
     }
 
     if (cheapestStations.length === 0) {
@@ -1208,21 +1010,15 @@ function showManualRouteOptions(origin, destination, preCalculatedStations = nul
         return;
     }
 
-    console.log('Iniciando generación de interfaz visual...');
-
     // Limpiar contenido anterior
     resultsDiv.innerHTML = '';
-    
-    console.log('Contenido anterior limpiado');
 
     // Mostrar contenedor de resultados y ocultar mensaje
     messageContainer.classList.add('d-none');
     resultsContainer.classList.remove('d-none');
-    
+
     // Ocultar el formulario principal
     form.classList.add('d-none');
-    
-    console.log('Contenedor de resultados mostrado y formulario ocultado');
 
     // Título
     const title = document.createElement('h3');
@@ -1247,8 +1043,6 @@ headerContainer.appendChild(backToResultsBtn);
 // 4. Añade el contenedor completo a tu resultsDiv
 resultsDiv.appendChild(headerContainer);
 
-console.log('Header container añadido');
-
     // Contenedor de botones de acción
     //const actionContainer = document.createElement('div');
     //actionContainer.className = 'mb-3 d-flex gap-2';
@@ -1268,15 +1062,11 @@ console.log('Header container añadido');
         <small class="text-muted mt-2 text-center" id="selection-counter">0 gasolineras seleccionadas</small>
     `;
     resultsDiv.appendChild(generateContainer);
-    
-    console.log('Generate container añadido');
-    
+
     // Lista de estaciones con checkboxes
     const stationsContainer = document.createElement('div');
     stationsContainer.id = 'manual-stations-container';
-    
-    console.log('Iniciando creación de', cheapestStations.length, 'tarjetas de estaciones');
-    
+
     cheapestStations.forEach((station, index) => {
         const card = document.createElement('div');
         card.className = 'card card-body mb-2 bg-body-tertiary station-card';
@@ -1322,8 +1112,6 @@ console.log('Header container añadido');
     });
     
     resultsDiv.appendChild(stationsContainer);
-    
-    console.log('Stations container añadido al DOM');
 
     // Botón para generar ruta
 
@@ -1362,8 +1150,6 @@ console.log('Header container añadido');
         
         // Mostrar mensaje por defecto
         showMessage('info', 'Introduce una ruta para comenzar.');
-        
-        console.log('Vuelta a la pantalla principal');
     });
 
     document.getElementById('generate-manual-route-btn').addEventListener('click', () => {
@@ -1395,8 +1181,6 @@ console.log('Header container añadido');
     
     // Inicializar contador
     updateSelectionCounter(0);
-    
-    console.log('showManualRouteOptions completado exitosamente');
 }
 
 function displayResults(results, origin, destination) {

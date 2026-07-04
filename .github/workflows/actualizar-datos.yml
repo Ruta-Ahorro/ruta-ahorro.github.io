@@ -1,0 +1,64 @@
+name: Actualizar datos de gasolineras
+
+# Descarga los precios de carburantes del Ministerio y los publica como JSON
+# estático en /data/estaciones.json. Así la app no depende de proxies CORS
+# de terceros: hace un fetch same-origin al propio GitHub Pages.
+
+on:
+  schedule:
+    # Dos veces al día (los precios se comunican a diario por la mañana).
+    # Horas UTC: 05:30 y 13:30.
+    - cron: '30 5,13 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar datos del Ministerio
+        run: |
+          curl -sSf --retry 3 --retry-delay 30 \
+            'https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/' \
+            -o /tmp/estaciones_raw.json
+
+      - name: Filtrar campos usados por la app
+        run: |
+          mkdir -p data
+          jq -c '{
+            Fecha: .Fecha,
+            ListaEESSPrecio: [.ListaEESSPrecio[] | {
+              "IDEESS": .IDEESS,
+              "Rótulo": ."Rótulo",
+              "Dirección": ."Dirección",
+              "Localidad": .Localidad,
+              "Latitud": .Latitud,
+              "Longitud (WGS84)": ."Longitud (WGS84)",
+              "Tipo Venta": ."Tipo Venta",
+              "Horario": .Horario,
+              "Precio Gasoleo A": ."Precio Gasoleo A",
+              "Precio Gasolina 95 E5": ."Precio Gasolina 95 E5",
+              "Precio Gasolina 98 E5": ."Precio Gasolina 98 E5",
+              "Precio Gasoleo Premium": ."Precio Gasoleo Premium",
+              "Precio Gasoleo B": ."Precio Gasoleo B",
+              "Precio Gases licuados del petróleo": ."Precio Gases licuados del petróleo",
+              "Precio Gas Natural Comprimido": ."Precio Gas Natural Comprimido",
+              "Precio Gas Natural Licuado": ."Precio Gas Natural Licuado"
+            }]
+          }' /tmp/estaciones_raw.json > data/estaciones.json
+
+      - name: Commit y push si hay cambios
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/estaciones.json
+          if git diff --cached --quiet; then
+            echo "Sin cambios en los datos."
+          else
+            git commit -m "chore: actualizar datos de gasolineras"
+            git push
+          fi

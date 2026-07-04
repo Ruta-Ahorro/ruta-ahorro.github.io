@@ -1,5 +1,0 @@
-[safe]
-	directory = %(prefix)///wsl.localhost/Ubuntu/home/jota/mediolanum/CRM
-[user]
-	email = sanjuanjor@protonmail.com
-	name = sanjuanjor

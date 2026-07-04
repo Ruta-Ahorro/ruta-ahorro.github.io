@@ -1,15 +1,21 @@
 // A name for our cache - INCREMENTAR VERSION PARA FORZAR ACTUALIZACIÓN
-const CACHE_NAME = 'gas-ruta-cache-v2.1';
+const CACHE_NAME = 'gas-ruta-cache-v2.2';
 
 // The URLs we want to cache. These are the "app shell" files.
+// Las versiones de los CDN deben coincidir con las de index.html.
 const urlsToCache = [
     '/',
- '/index.html',
+    '/index.html',
     '/app.js',
+    '/dark-mode.js',
     '/worker.js',
-    'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css',
+    '/manifest.json',
+    '/mapa-placeholder.png',
+    '/logo192.png',
+    '/logo512.png',
+    'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css',
     'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css',
-    'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js',
+    'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
     'https://unpkg.com/@turf/turf@6/turf.min.js',
@@ -19,7 +25,7 @@ const urlsToCache = [
 // Listen for the 'install' event.
 // This is where we will cache our app shell files.
 self.addEventListener('install', event => {
-    console.log('Service Worker: Installing v2.1...');
+    console.log('Service Worker: Installing v2.2...');
     // Forzar la activación inmediata del nuevo service worker
     self.skipWaiting();
     
@@ -27,7 +33,7 @@ self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_NAME)
             .then(cache => {
-                console.log('Service Worker: Caching app shell v2.1');
+                console.log('Service Worker: Caching app shell v2.2');
                 // Add all the specified URLs to the cache.
                 return cache.addAll(urlsToCache);
             })
@@ -83,7 +89,7 @@ self.addEventListener('fetch', event => {
 // Listen for the 'activate' event.
 // This is a good place to manage old caches.
 self.addEventListener('activate', event => {
-    console.log('Service Worker: Activating v2.1...');
+    console.log('Service Worker: Activating v2.2...');
     // Tomar control inmediatamente de todos los clientes
     clients.claim();
     
