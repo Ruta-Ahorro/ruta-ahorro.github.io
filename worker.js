@@ -45,18 +45,19 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations,
     const endPoint = turf.point(routeLine.geometry.coordinates[routeLine.geometry.coordinates.length - 1]);
 
     const stationsOnRoute = candidateStations
-        .filter(station => {
+        .map(station => {
             const point = turf.point([station.lon, station.lat]);
             const distanceToRoute = turf.pointToLineDistance(point, routeLine, { units: 'kilometers' });
-            return distanceToRoute <= searchRadius;
+            return { station, distanceToRoute };
         })
-        .map(station => {
+        .filter(({ distanceToRoute }) => distanceToRoute <= searchRadius)
+        .map(({ station, distanceToRoute }) => {
             const stationPoint = turf.point([station.lon, station.lat]);
             const nearestPointOnRoute = turf.nearestPointOnLine(routeLine, stationPoint);
             const distanceFromStart = turf.distance(originPoint, nearestPointOnRoute, { units: 'kilometers' });
             const distanceFromEnd = turf.distance(endPoint, nearestPointOnRoute, { units: 'kilometers' });
 
-            return { ...station, distanceFromStart, distanceFromEnd };
+            return { ...station, distanceFromStart, distanceFromEnd, distanceToRoute };
         })
         .sort((a, b) => a.distanceFromStart - b.distanceFromStart);
     
@@ -89,6 +90,9 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations,
     // Add effective cost per km
     stationsOnRoute.forEach(s => {
         s.c = s.prices[fuelType] * (consumption / 100);
+        // Coste del desvío: ida y vuelta desde la ruta hasta la gasolinera,
+        // valorado al precio por km de esa misma gasolinera.
+        s.detourCost = 2 * s.distanceToRoute * s.c;
     });
 
     // DP: C[i] is Map of g => {cost, nextV, isFull, amount, arrivalGNext}
@@ -204,9 +208,10 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations,
             }
 
             if (minCost < Infinity) {
-                // La penalización por parada encarece cada stop: así el óptimo deja
-                // de incluir paradas que solo ahorran unos céntimos.
-                C[i].set(g, {cost: minCost + stopPenalty, nextV: bestNext, isFull: bestIsFull, amount: bestAmount, arrivalGNext: bestArrivalG});
+                // La penalización por parada y el coste del desvío encarecen cada
+                // stop: así el óptimo deja de incluir paradas que solo ahorran
+                // unos céntimos o que exigen desviarse mucho de la ruta.
+                C[i].set(g, {cost: minCost + stopPenalty + stationsOnRoute[i].detourCost, nextV: bestNext, isFull: bestIsFull, amount: bestAmount, arrivalGNext: bestArrivalG});
             }
         }
     }
@@ -320,18 +325,19 @@ function calculateOptimalStops2(routeLine, routeDistance, params, allGasStations
     const endPoint = turf.point(routeLine.geometry.coordinates[routeLine.geometry.coordinates.length - 1]);
 
     const stationsOnRoute = candidateStations
-        .filter(station => {
+        .map(station => {
             const point = turf.point([station.lon, station.lat]);
             const distanceToRoute = turf.pointToLineDistance(point, routeLine, { units: 'kilometers' });
-            return distanceToRoute <= searchRadius;
+            return { station, distanceToRoute };
         })
-        .map(station => {
+        .filter(({ distanceToRoute }) => distanceToRoute <= searchRadius)
+        .map(({ station, distanceToRoute }) => {
             const stationPoint = turf.point([station.lon, station.lat]);
             const nearestPointOnRoute = turf.nearestPointOnLine(routeLine, stationPoint);
             const distanceFromStart = turf.distance(originPoint, nearestPointOnRoute, { units: 'kilometers' });
             const distanceFromEnd = turf.distance(endPoint, nearestPointOnRoute, { units: 'kilometers' });
 
-            return { ...station, distanceFromStart, distanceFromEnd };
+            return { ...station, distanceFromStart, distanceFromEnd, distanceToRoute };
         })
         .sort((a, b) => a.distanceFromStart - b.distanceFromStart);
     
@@ -363,13 +369,22 @@ function calculateOptimalStops2(routeLine, routeDistance, params, allGasStations
         });
         const candidates = usefulStations.length > 0 ? usefulStations : reachableStations;
 
-        // MODIFICACIÓN: En lugar de picking el más barato (y earliest en ties), preferir el farthest en ties para saltar clusters.
+        // Elegir por precio efectivo: al precio del surtidor se le suma el
+        // combustible del desvío (ida y vuelta hasta la gasolinera) prorrateado
+        // entre los litros que repostaríamos allí. En empates, la más lejana
+        // para saltar clusters.
+        const effectivePrice = (s) => {
+            const fuelAtArrival = currentFuel - ((s.distanceFromStart - currentDist) / 100) * consumption;
+            const refill = Math.max(tankCapacity - fuelAtArrival, 0.1);
+            const detourFuel = 2 * s.distanceToRoute * (consumption / 100);
+            return s.prices[fuelType] * (refill + detourFuel) / refill;
+        };
         const nextStop = candidates.reduce((best, s) => {
-            const priceS = s.prices[fuelType];
-            const priceBest = best.prices[fuelType];
-            if (priceS < priceBest) {
+            const priceS = effectivePrice(s);
+            const priceBest = effectivePrice(best);
+            if (priceS < priceBest - 1e-9) {
                 return s;
-            } else if (priceS === priceBest && s.distanceFromStart > best.distanceFromStart) {
+            } else if (Math.abs(priceS - priceBest) <= 1e-9 && s.distanceFromStart > best.distanceFromStart) {
                 return s;
             }
             return best;
@@ -413,17 +428,19 @@ function calculateOptimalStops2(routeLine, routeDistance, params, allGasStations
             throw new Error("No se puede completar la ruta con el nivel de combustible deseado en destino. No hay gasolineras adecuadas cerca del final.");
         }
 
-        // MODIFICACIÓN: Aplicar el mismo tie-breaker (farthest en ties, i.e., closest to end).
-        const extraStop = feasibleLastStops.reduce((best, s) => {
-            const priceS = s.prices[fuelType];
-            const priceBest = best.prices[fuelType];
-            if (priceS < priceBest) {
-                return s;
-            } else if (priceS === priceBest && s.distanceFromStart > best.distanceFromStart) {
-                return s;
-            }
-            return best;
-        }, feasibleLastStops[0]);
+        // Elegir la parada final por coste total real: litros necesarios allí
+        // más el combustible del desvío, todo al precio de esa gasolinera.
+        const lastStopCost = (s) => {
+            const fuelAtStop = currentFuel - ((s.distanceFromStart - currentDist) / 100) * consumption;
+            const fuelForFinalLeg = (s.distanceFromEnd / 100) * consumption;
+            let refill = Math.max(0, desiredFuel + fuelForFinalLeg - fuelAtStop);
+            refill = Math.min(refill, tankCapacity - fuelAtStop);
+            const detourFuel = 2 * s.distanceToRoute * (consumption / 100);
+            return (refill + detourFuel) * s.prices[fuelType];
+        };
+        const extraStop = feasibleLastStops.reduce((best, s) =>
+            lastStopCost(s) < lastStopCost(best) ? s : best,
+            feasibleLastStops[0]);
 
         const distToExtra = extraStop.distanceFromStart - currentDist;
         const fuelNeededToExtra = (distToExtra / 100) * consumption;

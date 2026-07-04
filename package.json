@@ -1,0 +1,11 @@
+{
+  "name": "ruta-ahorro",
+  "private": true,
+  "description": "Optimizador de rutas de gasolina — dependencias de test de los algoritmos del worker",
+  "scripts": {
+    "test": "node tests/test-worker.js"
+  },
+  "devDependencies": {
+    "@turf/turf": "^6.5.0"
+  }
+}

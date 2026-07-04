@@ -78,6 +78,73 @@ let allGasStations = [];
 let currentRouteData = null; // Para almacenar datos de la ruta actual
 let currentRouteStations = []; // Para almacenar gasolineras de la ruta actual
 let manualSearchBtn; // Declarar como variable global
+let autoSearchPending = false; // Ruta compartida por URL pendiente de buscar
+
+// Campos del API del Ministerio → claves cortas internas de precios
+const API_PRICE_FIELDS = {
+    GA: 'Precio Gasoleo A',
+    G95E5: 'Precio Gasolina 95 E5',
+    G98E5: 'Precio Gasolina 98 E5',
+    GP: 'Precio Gasoleo Premium',
+    GB: 'Precio Gasoleo B',
+    GLP: 'Precio Gases licuados del petróleo',
+    GNC: 'Precio Gas Natural Comprimido',
+    GNL: 'Precio Gas Natural Licuado'
+};
+
+// --- Persistencia de configuración del usuario ---
+const SETTINGS_KEY = 'rutaAhorroSettings';
+const SETTING_IDS = ['fuel-type', 'tank-capacity', 'consumption', 'current-fuel', 'final-fuel', 'search-radius', 'include-restricted'];
+
+function saveSettings() {
+    const settings = {};
+    for (const id of SETTING_IDS) {
+        const el = document.getElementById(id);
+        settings[id] = el.type === 'checkbox' ? el.checked : el.value;
+    }
+    const algo = document.querySelector('input[name="algorithm"]:checked');
+    if (algo) settings.algorithm = algo.value;
+    try {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch (e) { /* almacenamiento no disponible: ignorar */ }
+}
+
+function loadSettings() {
+    let settings = null;
+    try {
+        settings = JSON.parse(localStorage.getItem(SETTINGS_KEY));
+    } catch (e) { /* JSON corrupto: ignorar */ }
+    if (!settings) return;
+
+    for (const id of SETTING_IDS) {
+        if (!(id in settings)) continue;
+        const el = document.getElementById(id);
+        if (el.type === 'checkbox') {
+            el.checked = !!settings[id];
+        } else {
+            el.value = settings[id];
+            // Si el valor guardado ya no existe (p. ej. opciones renombradas),
+            // volver a la primera opción en vez de dejar el select vacío.
+            if (el.tagName === 'SELECT' && el.value !== String(settings[id])) {
+                el.selectedIndex = 0;
+            }
+        }
+    }
+    if (settings.algorithm) {
+        const radio = document.querySelector(`input[name="algorithm"][value="${settings.algorithm}"]`);
+        if (radio) radio.checked = true;
+    }
+    // Sincronizar las etiquetas de los sliders con los valores restaurados
+    currentFuelLabel.textContent = `${currentFuelSlider.value}%`;
+    finalFuelLabel.textContent = `${finalFuelSlider.value}%`;
+    searchRadiusLabel.textContent = searchRadiusSlider.value;
+}
+
+// --- Rutas compartibles: ?origen=...&destino=... ---
+function updateShareUrl(origin, destination) {
+    const params = new URLSearchParams({ origen: origin, destino: destination });
+    history.replaceState(null, '', `${location.pathname}?${params}`);
+}
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -100,6 +167,21 @@ document.addEventListener('DOMContentLoaded', () => {
     if (manualSearchBtn) {
         manualSearchBtn.disabled = true;
         manualSearchBtn.classList.add('disabled');
+    }
+
+    // Restaurar la configuración guardada y guardarla en cada cambio
+    loadSettings();
+    form.addEventListener('change', saveSettings);
+    settingsPanel.addEventListener('change', saveSettings);
+
+    // Ruta compartida por URL: rellenar y buscar cuando carguen los datos
+    const urlParams = new URLSearchParams(location.search);
+    const sharedOrigin = urlParams.get('origen');
+    const sharedDestination = urlParams.get('destino');
+    if (sharedOrigin && sharedDestination) {
+        originInput.value = sharedOrigin;
+        destinationInput.value = sharedDestination;
+        autoSearchPending = true;
     }
     
     initializeMap();
@@ -264,6 +346,9 @@ async function handleManualSearch() {
             params: params
         };
 
+        // URL compartible con la ruta calculada
+        updateShareUrl(originText, destinationText);
+
         hideSpinner();
 
         // Calcular estaciones más baratas directamente aquí
@@ -291,8 +376,9 @@ async function handleManualSearch() {
 }
 
 // --- Autocomplete ---
-let debounceTimer;
 function setupAutocomplete(inputEl, suggestionsEl) {
+    let debounceTimer; // temporizador propio de cada campo
+
     inputEl.addEventListener('input', () => {
         clearTimeout(debounceTimer);
         const query = inputEl.value;
@@ -306,6 +392,30 @@ function setupAutocomplete(inputEl, suggestionsEl) {
         debounceTimer = setTimeout(() => {
             fetchSuggestions(query, suggestionsEl, inputEl);
         }, 300);
+    });
+
+    // Navegación con teclado: flechas para moverse, Enter para elegir, Escape para cerrar
+    inputEl.addEventListener('keydown', (e) => {
+        if (suggestionsEl.classList.contains('d-none')) return;
+        const items = [...suggestionsEl.querySelectorAll('.list-group-item')];
+        if (items.length === 0) return;
+
+        const activeIndex = items.findIndex(item => item.classList.contains('active'));
+
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            const next = e.key === 'ArrowDown'
+                ? (activeIndex + 1) % items.length
+                : (activeIndex - 1 + items.length) % items.length;
+            items.forEach(item => item.classList.remove('active'));
+            items[next].classList.add('active');
+            items[next].scrollIntoView({ block: 'nearest' });
+        } else if (e.key === 'Enter' && activeIndex >= 0) {
+            e.preventDefault(); // no enviar el formulario al elegir sugerencia
+            items[activeIndex].click();
+        } else if (e.key === 'Escape') {
+            suggestionsEl.classList.add('d-none');
+        }
     });
 }
 
@@ -608,8 +718,9 @@ async function fetchGasStations() {
 
     try {
         let jsonData = null;
+        let dataDate = null;
 
-        // 1. Datos estáticos del propio sitio
+        // 1. Datos estáticos del propio sitio (formato interno pre-procesado)
         try {
             const response = await fetch(localDataUrl);
             if (response.ok) {
@@ -619,8 +730,12 @@ async function fetchGasStations() {
             console.warn('No se pudieron cargar los datos estáticos locales:', error);
         }
 
-        // 2. Respaldo: API del Ministerio vía proxy CORS
-        if (!jsonData || !Array.isArray(jsonData.ListaEESSPrecio)) {
+        if (jsonData && Array.isArray(jsonData.estaciones)) {
+            // Formato interno: ya viene con números y claves cortas
+            allGasStations = jsonData.estaciones;
+            dataDate = jsonData.fecha;
+        } else {
+            // 2. Respaldo: API del Ministerio (formato crudo) vía proxy CORS
             console.warn('Usando la API del Ministerio vía proxy CORS como respaldo...');
             const proxiedUrl = `https://corsproxy.io/?url=${encodeURIComponent(apiUrl)}`;
             const response = await fetch(proxiedUrl, {
@@ -636,33 +751,37 @@ async function fetchGasStations() {
             }
 
             jsonData = await response.json();
+
+            if (!jsonData || !Array.isArray(jsonData.ListaEESSPrecio)) {
+                throw new Error('Datos de gasolineras no válidos recibidos');
+            }
+
+            allGasStations = jsonData.ListaEESSPrecio
+                .map(s => ({
+                    id: s['IDEESS'], name: s['Rótulo'], address: `${s['Dirección']}, ${s['Localidad']}`,
+                    lat: parseFloat(s['Latitud'].replace(',', '.')), lon: parseFloat(s['Longitud (WGS84)'].replace(',', '.')),
+                    tipoVenta: s['Tipo Venta'],
+                    horario: s['Horario'],
+                    prices: Object.fromEntries(
+                        Object.entries(API_PRICE_FIELDS).map(([key, field]) =>
+                            [key, parseFloat((s[field] || '').replace(',', '.')) || null]
+                        )
+                    )
+                })).filter(s => s.lat && s.lon);
+            dataDate = jsonData.Fecha;
         }
 
-        if (!jsonData || !jsonData.ListaEESSPrecio || !Array.isArray(jsonData.ListaEESSPrecio)) {
-            throw new Error('Datos de gasolineras no válidos recibidos');
-        }
-
-        // Process the successfully fetched data
-        allGasStations = jsonData.ListaEESSPrecio
-            .map(s => ({
-                id: s['IDEESS'], name: s['Rótulo'], address: `${s['Dirección']}, ${s['Localidad']}`,
-                lat: parseFloat(s['Latitud'].replace(',', '.')), lon: parseFloat(s['Longitud (WGS84)'].replace(',', '.')),
-                tipoVenta: s['Tipo Venta'],
-                horario: s['Horario'],
-
-                prices: {
-                    'Precio Gasoleo A': parseFloat(s['Precio Gasoleo A'].replace(',', '.')) || null,
-                    'Precio Gasolina 95 E5': parseFloat(s['Precio Gasolina 95 E5'].replace(',', '.')) || null,
-                    'Precio Gasolina 98 E5': parseFloat(s['Precio Gasolina 98 E5'].replace(',', '.')) || null,
-                    'Precio Gasoleo Premium': parseFloat(s['Precio Gasoleo Premium'].replace(',', '.')) || null,
-                    'Precio Gasoleo B': parseFloat(s['Precio Gasoleo B'].replace(',', '.')) || null,
-                    'Precio Gases licuados del petróleo': parseFloat(s['Precio Gases licuados del petróleo'].replace(',', '.')) || null,
-                    'Precio Gas Natural Comprimido': parseFloat(s['Precio Gas Natural Comprimido'].replace(',', '.')) || null,
-                    'Precio Gas Natural Licuado': parseFloat(s['Precio Gas Natural Licuado'].replace(',', '.')) || null,
-                }
-            })).filter(s => s.lat && s.lon);
-        
         console.log(`Cargadas ${allGasStations.length} gasolineras.`);
+
+        // Mostrar la fecha y hora de los precios en el pie del sidebar
+        const dataDateEl = document.getElementById('data-date');
+        if (dataDateEl && dataDate) {
+            // El API devuelve "dd/mm/aaaa h:mm:ss"; mostrar sin segundos
+            const [datePart, timePart] = String(dataDate).split(' ');
+            const time = timePart ? ` · ${timePart.split(':').slice(0, 2).join(':')}h` : '';
+            dataDateEl.textContent = `Precios actualizados: ${datePart}${time}`;
+        }
+
         showMessage('info', 'Datos cargados. ¡Listo para buscar tu ruta!');
         searchButton.disabled = false;
         searchButton.classList.remove('disabled');
@@ -673,9 +792,22 @@ async function fetchGasStations() {
             manualSearchBtn.classList.remove('disabled');
         }
 
+        // Si llegó una ruta compartida por URL, lanzarla ahora
+        if (autoSearchPending) {
+            autoSearchPending = false;
+            form.requestSubmit(searchButton);
+        }
+
     } catch (error) {
         console.error("Error cargando gasolineras:", error);
-        showMessage('error', 'Error de conexión: No se pudieron cargar los datos de las gasolineras del gobierno. El servicio puede estar temporalmente caído. Por favor, inténtalo de nuevo más tarde.');
+        showMessage('error', 'Error de conexión: No se pudieron cargar los datos de las gasolineras del gobierno. El servicio puede estar temporalmente caído.');
+        // Botón para reintentar sin recargar la página
+        const retryBtn = document.createElement('button');
+        retryBtn.type = 'button';
+        retryBtn.className = 'btn btn-outline-primary btn-sm mt-2';
+        retryBtn.textContent = 'Reintentar';
+        retryBtn.addEventListener('click', fetchGasStations);
+        messageContent.appendChild(retryBtn);
     } finally {
         hideSpinner();
     }
@@ -731,7 +863,10 @@ async function handleFormSubmit(e) {
             const { success, results, error, origin, destination } = e.data;
             if (success) {
                 console.log('Main: Results received from worker.');
-                
+
+                // URL compartible con la ruta calculada
+                updateShareUrl(origin, destination);
+
                 // Almacenar datos para ruta manual
                 currentRouteData = {
                     routeLine: routeLine,
@@ -854,21 +989,22 @@ function getCheapestStationsOnRoute(routeLine, params, allGasStations, origin, d
         return turf.booleanPointInPolygon(point, bufferedBboxPolygon);
     });
 
-    // Filtrado detallado
+    // Filtrado detallado (conservando la distancia a la ruta para mostrarla)
     const originPoint = turf.point(routeLine.geometry.coordinates[0]);
-    
+
     const stationsOnRoute = candidateStations
-        .filter(station => {
+        .map(station => {
             const point = turf.point([station.lon, station.lat]);
             const distanceToRoute = turf.pointToLineDistance(point, routeLine, { units: 'kilometers' });
-            return distanceToRoute <= searchRadius;
+            return { station, distanceToRoute };
         })
-        .map(station => {
+        .filter(({ distanceToRoute }) => distanceToRoute <= searchRadius)
+        .map(({ station, distanceToRoute }) => {
             const stationPoint = turf.point([station.lon, station.lat]);
             const nearestPointOnRoute = turf.nearestPointOnLine(routeLine, stationPoint);
             const distanceFromStart = turf.distance(originPoint, nearestPointOnRoute, { units: 'kilometers' });
 
-            return { ...station, distanceFromStart };
+            return { ...station, distanceFromStart, distanceToRoute };
         });
 
     const finalStations = stationsOnRoute
@@ -1081,9 +1217,9 @@ resultsDiv.appendChild(headerContainer);
                     <input class="form-check-input station-checkbox" type="checkbox" value="${index}" id="station-${index}">
                 </div>
                 <div class="flex-grow-1">
-                    <label class="form-check-label fw-bold" for="station-${index}" style="color:#b549ff;">${station.name}</label>
-                    <p class="small text-danger fw-bold mb-1">${station.horario}
-                    <span class="small text-muted">Km ${Math.round(station.distanceFromStart)}</span></p>
+                    <label class="form-check-label fw-bold station-name" for="station-${index}">${station.name}</label>
+                    <p class="small text-body-secondary fw-bold mb-1">${station.horario}
+                    <span class="small text-muted">Km ${Math.round(station.distanceFromStart)}${station.distanceToRoute != null ? ` · a ${station.distanceToRoute.toFixed(1)} km de la ruta` : ''}</span></p>
                 </div>
                 <div class="text-end ms-2">
                     <p class="h6 fw-bold text-body-emphasis mb-0">${station.prices[currentRouteData.params.fuelType].toFixed(3)} €/L</p>
@@ -1202,6 +1338,19 @@ function displayResults(results, origin, destination) {
     title.className = "h5 fw-bold text-body-emphasis mb-2";
     title.textContent = "Plan de paradas sugeridas";
     resultsDiv.appendChild(title);
+
+    // Resumen del viaje
+    const totalLiters = stops.reduce((total, stop) => total + stop.refuelAmount, 0);
+    const summary = document.createElement('div');
+    summary.className = 'p-2 bg-body-tertiary border rounded-3 mb-2 small';
+    summary.innerHTML = `
+        <div class="d-flex justify-content-between"><span>Distancia</span><span class="fw-bold">${Math.round(currentRouteData?.routeDistance || 0)} km</span></div>
+        <div class="d-flex justify-content-between"><span>Paradas</span><span class="fw-bold">${stops.length}</span></div>
+        <div class="d-flex justify-content-between"><span>Combustible a repostar</span><span class="fw-bold">${totalLiters.toFixed(1)} L</span></div>
+        <div class="d-flex justify-content-between"><span>Coste total</span><span class="fw-bold">${results.optimalCost.toFixed(2)} €</span></div>
+    `;
+    resultsDiv.appendChild(summary);
+
                 if (stops.length > 0) {
         const waypoints = stops.map(s => `${s.lat},${s.lon}`).join('|');
         const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&waypoints=${encodeURIComponent(waypoints)}`;
@@ -1240,8 +1389,8 @@ function displayResults(results, origin, destination) {
         card.innerHTML = `
             <div class="d-flex justify-content-between align-items-start">
                 <div class="flex-grow-1">
-                    <p class="fw-bold" style="color:#b549ff;" >Parada ${index + 1}: ${station.name}</p>
-                    <p class=" fw-bold small text-danger">${station.horario}</p>
+                    <p class="fw-bold station-name">Parada ${index + 1}: ${station.name}</p>
+                    <p class="fw-bold small text-body-secondary">${station.horario}</p>
                     <p class="small text-muted">${station.address}</p>
                     <p class="small text-muted">Aprox. en el km ${Math.round(station.distanceFromStart)}</p>
                 </div>

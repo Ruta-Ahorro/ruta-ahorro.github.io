@@ -1,5 +1,5 @@
 // A name for our cache - INCREMENTAR VERSION PARA FORZAR ACTUALIZACIÓN
-const CACHE_NAME = 'gas-ruta-cache-v2.2';
+const CACHE_NAME = 'gas-ruta-cache-v2.3';
 
 // The URLs we want to cache. These are the "app shell" files.
 // Las versiones de los CDN deben coincidir con las de index.html.
@@ -25,7 +25,7 @@ const urlsToCache = [
 // Listen for the 'install' event.
 // This is where we will cache our app shell files.
 self.addEventListener('install', event => {
-    console.log('Service Worker: Installing v2.2...');
+    console.log('Service Worker: Installing v2.3...');
     // Forzar la activación inmediata del nuevo service worker
     self.skipWaiting();
     
@@ -33,7 +33,7 @@ self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_NAME)
             .then(cache => {
-                console.log('Service Worker: Caching app shell v2.2');
+                console.log('Service Worker: Caching app shell v2.3');
                 // Add all the specified URLs to the cache.
                 return cache.addAll(urlsToCache);
             })
@@ -89,7 +89,7 @@ self.addEventListener('fetch', event => {
 // Listen for the 'activate' event.
 // This is a good place to manage old caches.
 self.addEventListener('activate', event => {
-    console.log('Service Worker: Activating v2.2...');
+    console.log('Service Worker: Activating v2.3...');
     // Tomar control inmediatamente de todos los clientes
     clients.claim();
     

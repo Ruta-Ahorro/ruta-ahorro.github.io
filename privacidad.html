@@ -3,87 +3,94 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Política de Privacidad - Optimizador de Rutas</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-    </style>
+    <title>Política de Privacidad - Ruta Ahorro</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root { color-scheme: light dark; }
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            background: #f3f4f6;
+            color: #1f2937;
+            line-height: 1.6;
+        }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem 1.25rem 3rem; }
+        h1 { font-size: 2rem; margin-bottom: 0.25rem; }
+        h2 { font-size: 1.25rem; margin-top: 2rem; }
+        .fecha { color: #6b7280; font-size: 0.875rem; }
+        main { background: #fff; border-radius: 0.5rem; padding: 2rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+        ul { padding-left: 1.25rem; }
+        li { margin-bottom: 0.5rem; }
+        a { color: #4f46e5; }
+        footer { text-align: center; margin-top: 2rem; }
+        @media (prefers-color-scheme: dark) {
+            body { background: #121212; color: #e0e0e0; }
+            main { background: #1e1e1e; }
+            .fecha { color: #9ca3af; }
+            a { color: #a5b4fc; }
+        }
+    </style>
 </head>
-<body class="bg-gray-100 text-gray-800">
-    <div class="container mx-auto p-6 md:p-12">
-        <header class="mb-8">
-            <h1 class="text-4xl font-bold text-gray-900">Política de Privacidad</h1>
-            <p class="text-sm text-gray-500">Última actualización: 12 de agosto de 2025</p>
+<body>
+    <div class="container">
+        <header>
+            <h1>Política de Privacidad</h1>
+            <p class="fecha">Última actualización: 4 de julio de 2026</p>
         </header>
-        
-        <main class="bg-white p-8 rounded-lg shadow-md space-y-6">
+
+        <main>
             <section>
-                <h2 class="text-2xl font-semibold mb-2">1. Introducción</h2>
-                <p>Bienvenido a Optimizador de Rutas. Tu privacidad es de suma importancia para nosotros. Esta Política de Privacidad tiene como objetivo informarte de manera clara y transparente sobre qué datos recopilamos, por qué los recopilamos, cómo los utilizamos y cuáles son tus derechos con respecto a tu información personal al utilizar nuestra aplicación.</p>
+                <h2>1. Lo esencial</h2>
+                <p>Ruta Ahorro es una aplicación web estática que funciona íntegramente en tu navegador. <strong>No tenemos servidores propios, no usamos cookies, no incluimos herramientas de analítica ni de publicidad, y no recopilamos, almacenamos ni vendemos ningún dato personal.</strong></p>
             </section>
-            
+
             <section>
-                <h2 class="text-2xl font-semibold mb-2">2. Información que Recopilamos</h2>
-                <p>Para ofrecerte un servicio funcional y eficiente, necesitamos recopilar ciertos datos. La información que recogemos se puede clasificar de la siguiente manera:</p>
-                <ul class="list-disc list-inside mt-2 space-y-2">
-                    <li><strong>Datos de Geolocalización:</strong> Solicitamos acceso a la ubicación de tu dispositivo para identificar tu posición actual y establecerla como punto de partida o para facilitar la introducción de direcciones en la ruta. Esta información solo se utiliza durante el uso activo de la aplicación para calcular la ruta solicitada y no se almacena un historial de tus ubicaciones.</li>
-                    <li><strong>Datos proporcionados por el usuario:</strong> Incluye las direcciones, puntos de interés o coordenadas que introduces manualmente como origen, destino o paradas intermedias de tu ruta.</li>
-                    <li><strong>Datos de Uso y Técnicos:</strong> Recopilamos información anónima sobre cómo interactúas con nuestra aplicación. Esto incluye datos como el tipo de dispositivo, sistema operativo, identificadores de dispositivo anónimos, funciones utilizadas y errores de la aplicación. Esta información nos ayuda a entender cómo se usa nuestro servicio, a mejorar su rendimiento y a solucionar problemas.</li>
+                <h2>2. Datos que se quedan en tu dispositivo</h2>
+                <ul>
+                    <li><strong>Configuración de la app:</strong> tu tipo de combustible, capacidad del depósito, consumo y preferencias se guardan en el almacenamiento local de tu navegador (<code>localStorage</code>) únicamente para que no tengas que volver a introducirlos. Nunca salen de tu dispositivo y puedes borrarlos limpiando los datos del sitio en tu navegador.</li>
+                    <li><strong>Preferencia de tema</strong> (claro/oscuro): también se guarda localmente.</li>
                 </ul>
             </section>
 
             <section>
-                <h2 class="text-2xl font-semibold mb-2">3. Cómo Usamos su Información</h2>
-                <p>Utilizamos la información que recopilamos con los siguientes propósitos:</p>
-                 <ul class="list-disc list-inside mt-2 space-y-2">
-                    <li><strong>Para prestar el servicio principal:</strong> Usamos los datos de geolocalización y las direcciones que proporcionas para calcular y mostrar la ruta más óptima.</li>
-                    <li><strong>Para mejorar y optimizar la aplicación:</strong> Analizamos los datos de uso anónimos para identificar qué funciones son más populares, mejorar la experiencia del usuario, corregir errores y planificar futuras actualizaciones.</li>
-                    <li><strong>Para garantizar la seguridad:</strong> Monitorizamos el uso para proteger la seguridad e integridad de nuestro servicio.</li>
+                <h2>3. Servicios de terceros a los que se envían datos</h2>
+                <p>Para funcionar, la aplicación hace peticiones directamente desde tu navegador a estos servicios externos. Como en cualquier petición web, estos servicios reciben tu dirección IP:</p>
+                <ul>
+                    <li><strong>Nominatim (OpenStreetMap Foundation):</strong> recibe las direcciones de origen y destino que escribes para convertirlas en coordenadas. Si usas el botón de ubicación, tus coordenadas GPS se envían a Nominatim para obtener la dirección correspondiente. <a href="https://osmfoundation.org/wiki/Privacy_Policy" target="_blank" rel="noopener">Política de privacidad de OSMF</a>.</li>
+                    <li><strong>OSRM (router.project-osrm.org):</strong> recibe las coordenadas de origen y destino para calcular la ruta.</li>
+                    <li><strong>Teselas de OpenStreetMap:</strong> el mapa se descarga de los servidores de OpenStreetMap.</li>
+                    <li><strong>CDNs (jsDelivr, unpkg, Google Fonts):</strong> sirven las librerías y fuentes que usa la página.</li>
+                    <li><strong>Google Maps:</strong> solo si pulsas "Abrir Ruta en Google Maps", se abre Google Maps con tu ruta y paradas; a partir de ahí aplica la política de privacidad de Google.</li>
                 </ul>
+                <p>Los precios de las gasolineras provienen de los datos abiertos del <strong>Ministerio para la Transición Ecológica</strong> y se sirven como fichero estático desde este mismo sitio (GitHub Pages), sin que se envíe ningún dato tuyo al Ministerio.</p>
             </section>
 
             <section>
-                <h2 class="text-2xl font-semibold mb-2">4. Intercambio de Información</h2>
-                <p>No vendemos ni alquilamos tu información personal a terceros. Sin embargo, podemos compartir cierta información con proveedores de servicios que nos ayudan a operar y mejorar la aplicación:</p>
-                 <ul class="list-disc list-inside mt-2 space-y-2">
-                    <li><strong>Proveedores de servicios de mapas:</strong> Para poder calcular y visualizar las rutas, compartimos las coordenadas de origen, destino y paradas con nuestros proveedores de API de mapas (por ejemplo, Google Maps, Mapbox, OpenStreetMap). Te recomendamos revisar sus políticas de privacidad para entender cómo manejan los datos.</li>
-                    <li><strong>Proveedores de análisis:</strong> Podemos compartir datos de uso anónimos y agregados con servicios de análisis (como Google Analytics) para entender patrones de uso y mejorar la aplicación.</li>
-                    <li><strong>Requisitos legales:</strong> Podremos divulgar tu información si así lo exige la ley o en respuesta a una solicitud válida de una autoridad pública.</li>
-                </ul>
+                <h2>4. Geolocalización</h2>
+                <p>El acceso a tu ubicación es <strong>opcional</strong> y solo se activa si pulsas el botón de ubicación y concedes permiso a tu navegador. La posición se usa una única vez para rellenar el campo de origen, no se guarda ningún historial de ubicaciones y puedes revocar el permiso en cualquier momento desde la configuración del navegador.</p>
             </section>
 
             <section>
-                <h2 class="text-2xl font-semibold mb-2">5. Seguridad de los Datos</h2>
-                <p>Nos tomamos muy en serio la seguridad de tu información. Implementamos medidas técnicas y organizativas para proteger los datos que recopilamos contra el acceso no autorizado, la alteración, la divulgación o la destrucción. Esto incluye el uso de cifrado (como SSL/TLS) para la transmisión de datos. Sin embargo, ningún método de transmisión por internet o de almacenamiento electrónico es 100% seguro.</p>
+                <h2>5. Alojamiento</h2>
+                <p>Este sitio se aloja en <strong>GitHub Pages</strong>. GitHub puede registrar datos técnicos de acceso (como direcciones IP) según su propia <a href="https://docs.github.com/es/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">política de privacidad</a>.</p>
             </section>
 
             <section>
-                <h2 class="text-2xl font-semibold mb-2">6. Sus Derechos</h2>
-                <p>De acuerdo con la legislación de protección de datos aplicable (como el RGPD), tienes derecho a:</p>
-                <ul class="list-disc list-inside mt-2 space-y-2">
-                    <li><strong>Acceder:</strong> Solicitar una copia de la información personal que tenemos sobre ti.</li>
-                    <li><strong>Rectificar:</strong> Pedir la corrección de datos inexactos u obsoletos.</li>
-                    <li><strong>Suprimir:</strong> Solicitar la eliminación de tus datos personales cuando ya no sean necesarios para los fines para los que fueron recogidos.</li>
-                    <li><strong>Limitar el tratamiento:</strong> Solicitar que se restrinja el uso de tus datos en determinadas circunstancias.</li>
-                    <li><strong>Oponerte al tratamiento:</strong> Oponerte a que tus datos sean utilizados para ciertos fines.</li>
-                </ul>
-                <p class="mt-2">Para ejercer cualquiera de estos derechos, por favor, contáctanos a través de la información proporcionada en la sección "Contacto".</p>
+                <h2>6. Tus derechos</h2>
+                <p>Al no recopilar ni almacenar datos personales, no conservamos información sobre ti que se pueda consultar, corregir o eliminar. Los únicos datos existentes (tu configuración) están en tu propio navegador y los controlas tú.</p>
             </section>
 
             <section>
-                <h2 class="text-2xl font-semibold mb-2">7. Contacto</h2>
-                <p>Si tienes alguna pregunta, duda o solicitud con respecto a esta Política de Privacidad o sobre cómo manejamos tus datos, no dudes en contactarnos a través del siguiente correo electrónico:</p>
-                <p class="mt-2 font-medium">devgoogle.unstirred607@passinbox.com</p>
+                <h2>7. Contacto</h2>
+                <p>Si tienes cualquier duda sobre esta política, escríbenos a:</p>
+                <p><strong>devgoogle.unstirred607@passinbox.com</strong></p>
             </section>
         </main>
 
-        <footer class="text-center mt-8">
-            <a href="index.html" class="text-indigo-600 hover:underline">Volver a la página principal</a>
+        <footer>
+            <a href="index.html">Volver a la página principal</a>
         </footer>
     </div>
 </body>
