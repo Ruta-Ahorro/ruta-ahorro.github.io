@@ -1,8 +1,18 @@
 // Import the Turf.js library, which is essential for our calculations.
 importScripts('https://unpkg.com/@turf/turf@6/turf.min.js');
 
+// --- Ajustes anti "muchas paradas con repostajes ridículos" ---
+// Sin estas restricciones, el óptimo matemático puede ser parar en cada
+// gasolinera ligeramente más barata y echar cantidades mínimas (p. ej. 0,5 L),
+// algo correcto sobre el papel pero absurdo en la práctica.
+const STOP_PENALTY_EUR = 0.50;  // coste "virtual" de cada parada (tiempo, desvío)
+const MIN_REFUEL_LITERS = 5;    // repostaje mínimo planificable en paradas intermedias
+
 // The main function for calculating optimal stops. This is moved from the main script.
-function calculateOptimalStops(routeLine, routeDistance, params, allGasStations) {
+function calculateOptimalStops(routeLine, routeDistance, params, allGasStations, opts = {}) {
+    const stopPenalty = opts.stopPenalty ?? STOP_PENALTY_EUR;
+    const minRefuelLiters = opts.minRefuelLiters ?? MIN_REFUEL_LITERS;
+
     // 1. Get params (passed from the main thread)
     const { fuelType, tankCapacity, currentFuelPercent, consumption, searchRadius, includeRestricted, finalFuelPercent = 0, } = params;
 
@@ -74,6 +84,7 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations)
     const U = tankCapacity / consumption * 100; // max range km
     const initial_range = tankCapacity * (currentFuelPercent / 100) / consumption * 100;
     const desired_range = tankCapacity * (finalFuelPercent / 100) / consumption * 100;
+    const minAmountKm = minRefuelLiters / consumption * 100; // repostaje mínimo en km de autonomía
 
     // Add effective cost per km
     stationsOnRoute.forEach(s => {
@@ -146,7 +157,7 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations)
                 if (price_v <= price_i) {
                     if (g <= dist_i_v + EPS) {
                         let amount = dist_i_v - g;
-                        if (amount > EPS) { // positive refuel
+                        if (amount >= minAmountKm - EPS) { // repostaje mínimo en paradas intermedias
                             let arrival_g_v = 0;
                             let subCost = Infinity;
                             for (let [key, value] of C[v]) {
@@ -169,7 +180,7 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations)
                     }
                 } else {
                     let amount = U - g;
-                    if (amount > EPS) {
+                    if (amount >= minAmountKm - EPS) { // repostaje mínimo en paradas intermedias
                         let arrival_g_v = U - dist_i_v;
                         let subCost = Infinity;
                         for (let [key, value] of C[v]) {
@@ -193,7 +204,9 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations)
             }
 
             if (minCost < Infinity) {
-                C[i].set(g, {cost: minCost, nextV: bestNext, isFull: bestIsFull, amount: bestAmount, arrivalGNext: bestArrivalG});
+                // La penalización por parada encarece cada stop: así el óptimo deja
+                // de incluir paradas que solo ahorran unos céntimos.
+                C[i].set(g, {cost: minCost + stopPenalty, nextV: bestNext, isFull: bestIsFull, amount: bestAmount, arrivalGNext: bestArrivalG});
             }
         }
     }
@@ -239,8 +252,11 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations)
         let currentI = bestFirst;
         let currentG = bestG;
         while (currentI !== -1) {
-            const state = C[currentI].get(currentG); // but since floating, find the key
-            let actualKey = Array.from(C[currentI].keys()).find(k => Math.abs(k - currentG) < EPS);
+            // Las claves son flotantes: buscar la que coincide dentro de la tolerancia.
+            const actualKey = Array.from(C[currentI].keys()).find(k => Math.abs(k - currentG) < EPS);
+            if (actualKey === undefined) {
+                throw new Error("Error interno al reconstruir el plan de paradas. Inténtalo con otra configuración.");
+            }
             const {nextV, amount, arrivalGNext} = C[currentI].get(actualKey);
             let stop = {...stationsOnRoute[currentI]};
             stop.refuelAmount = amount * (consumption / 100); // back to liters
@@ -258,14 +274,20 @@ function calculateOptimalStops(routeLine, routeDistance, params, allGasStations)
     const avgPriceCost = totalRefuelAmount * avgPrice;
     const maxPriceCost = totalRefuelAmount * maxPrice;
 
+    // El coste que se muestra al usuario es solo el del combustible: la
+    // penalización por parada es interna, solo influye en la decisión.
+    const fuelCost = plannedStops.reduce((total, stop) => total + stop.refuelCost, 0);
+
     return {
         stops: plannedStops,
-        optimalCost: optimalCost,
+        optimalCost: fuelCost,
         avgPriceCost: avgPriceCost,
         maxPriceCost: maxPriceCost
     };
 }
-function calculateOptimalStops2(routeLine, routeDistance, params, allGasStations) {
+function calculateOptimalStops2(routeLine, routeDistance, params, allGasStations, opts = {}) {
+    const minRefuelLiters = opts.minRefuelLiters ?? MIN_REFUEL_LITERS;
+
     // 1. Get params (passed from the main thread)
     const { fuelType, tankCapacity, currentFuelPercent, consumption, searchRadius, includeRestricted, finalFuelPercent = 0 } = params;
 
@@ -332,8 +354,17 @@ function calculateOptimalStops2(routeLine, routeDistance, params, allGasStations
             throw new Error("No se puede completar la ruta. No hay gasolineras alcanzables en el siguiente tramo.");
         }
 
+        // Evitar paradas ridículas: descartar gasolineras donde llegaríamos casi
+        // llenos (el llenado sería menor que el repostaje mínimo). Si el filtro
+        // vacía la lista, usar todas para no declarar la ruta imposible.
+        const usefulStations = reachableStations.filter(s => {
+            const fuelAtArrival = currentFuel - ((s.distanceFromStart - currentDist) / 100) * consumption;
+            return (tankCapacity - fuelAtArrival) >= minRefuelLiters;
+        });
+        const candidates = usefulStations.length > 0 ? usefulStations : reachableStations;
+
         // MODIFICACIÓN: En lugar de picking el más barato (y earliest en ties), preferir el farthest en ties para saltar clusters.
-        const nextStop = reachableStations.reduce((best, s) => {
+        const nextStop = candidates.reduce((best, s) => {
             const priceS = s.prices[fuelType];
             const priceBest = best.prices[fuelType];
             if (priceS < priceBest) {
@@ -342,8 +373,8 @@ function calculateOptimalStops2(routeLine, routeDistance, params, allGasStations
                 return s;
             }
             return best;
-        }, reachableStations[0]);
-        
+        }, candidates[0]);
+
         const distToNextStop = nextStop.distanceFromStart - currentDist;
         const fuelNeeded = (distToNextStop / 100) * consumption;
 
@@ -368,9 +399,14 @@ function calculateOptimalStops2(routeLine, routeDistance, params, allGasStations
         const maxLastLegDist = ((tankCapacity - desiredFuel) / consumption) * 100;
         
         // MODIFICACIÓN: Corregir el filtro a <= (era >=, lo cual es un bug; debe ser paradas cercanas al final).
-        const feasibleLastStops = stationsOnRoute.filter(s => 
+        // Además, la parada tiene que ser alcanzable con el combustible actual:
+        // si no se filtra aquí, se elegía la más barata aunque quedara fuera de
+        // autonomía y la ruta fallaba pese a existir alternativas alcanzables.
+        const currentRange = (currentFuel / consumption) * 100;
+        const feasibleLastStops = stationsOnRoute.filter(s =>
             s.distanceFromStart > currentDist &&
-            s.distanceFromEnd <= maxLastLegDist
+            s.distanceFromEnd <= maxLastLegDist &&
+            (s.distanceFromStart - currentDist) <= currentRange
         );
         
         if (feasibleLastStops.length === 0) {
@@ -437,27 +473,28 @@ function calculateOptimalStops2(routeLine, routeDistance, params, allGasStations
     };
 }
 // Set up the event listener for messages from the main thread.
-// Set up the event listener for messages from the main thread.
 self.onmessage = function(e) {
-    console.log('Worker: Message received from main script');
     const { routeLine, routeDistance, params, allGasStations, origin, destination } = e.data;
-    
+
     // Obtener el algoritmo seleccionado de los parámetros
     const { algorithm } = params;
 
+    const run = (opts) => algorithm === 'dynamic'
+        ? calculateOptimalStops(routeLine, routeDistance, params, allGasStations, opts)
+        : calculateOptimalStops2(routeLine, routeDistance, params, allGasStations, opts);
+
     try {
         let results;
-        // Usar una declaración if/else o switch para elegir la función
-        if (algorithm === 'dynamic') {
-            console.log('Worker: Usando el algoritmo de Programación Dinámica.');
-            results = calculateOptimalStops(routeLine, routeDistance, params, allGasStations);
-        } else {
-            console.log('Worker: Usando el algoritmo Codicioso.');
-            // Aquí se llamaría a la función que tiene la lógica del algoritmo codicioso
-            results = calculateOptimalStops2(routeLine, routeDistance, params, allGasStations);
+        try {
+            results = run({});
+        } catch (strictError) {
+            // Si el repostaje mínimo / penalización hacen la ruta imposible
+            // (casos límite: depósitos muy pequeños, pocas gasolineras),
+            // reintentar sin restricciones antes de rendirse.
+            console.warn('Worker: sin solución con restricciones, reintentando sin ellas.', strictError.message);
+            results = run({ stopPenalty: 0, minRefuelLiters: 0 });
         }
 
-        console.log('Worker: Calculation complete, posting results back to main script');
         // Post the results back to the main thread, including the original origin/destination text.
         postMessage({ success: true, results, origin, destination });
     } catch (error) {
