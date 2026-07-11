@@ -271,12 +271,52 @@
                     <input type="range" id="search-radius" name="search-radius" min="1" max="10" value="2" class="form-range">
                     <p class="form-text mt-1">Distancia máxima desde la ruta para buscar gasolineras.</p>
                 </div>
-                <div class="mt-2">
+                <div class="mt-2 gas-only">
                     <div class="form-check">
                         <input type="checkbox" id="include-restricted" name="include-restricted" class="form-check-input">
                         <label for="include-restricted" class="form-check-label">Incluir gasolineras restringidas</label>
                     </div>
                     <p class="form-text mt-1">Estas vienen marcadas en la llamada como "Tipo Venta": "R" y son para uso de cooperativas, flotas, etc.</p>
+                </div>
+                <div class="mt-2 gas-only">
+                    <div class="form-check">
+                        <input type="checkbox" id="adblue-filter" name="adblue-filter" class="form-check-input">
+                        <label for="adblue-filter" class="form-check-label">Solo estaciones con AdBlue</label>
+                    </div>
+                </div>
+                <!-- Descuentos por marca (suscripciones, tarjetas de fidelización) -->
+                <div class="mt-3 gas-only">
+                    <label class="form-label small fw-bold">Descuentos por marca</label>
+                    <p class="form-text mt-0 mb-2">P. ej. Repsol −10 cts/L con Waylet. Se aplican al optimizar y al calcular costes.</p>
+                    <div id="discounts-container"></div>
+                    <button type="button" id="add-discount-btn" class="btn btn-outline-secondary btn-sm">
+                        <i class="bi bi-plus-circle" aria-hidden="true"></i> Añadir descuento
+                    </button>
+                </div>
+                <!-- Opciones solo para eléctricos -->
+                <div class="mt-3 ev-only d-none">
+                    <div class="mb-2">
+                        <label for="min-charge-power" class="form-label small fw-bold">Potencia mínima de carga en ruta</label>
+                        <select id="min-charge-power" name="min-charge-power" class="form-select form-select-sm">
+                            <option value="0">Cualquiera</option>
+                            <option value="22">≥ 22 kW</option>
+                            <option value="50" selected>≥ 50 kW (carga rápida)</option>
+                            <option value="100">≥ 100 kW</option>
+                            <option value="150">≥ 150 kW (ultrarrápida)</option>
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label for="ev-tariff" class="form-label small fw-bold">Tu tarifa por defecto</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" id="ev-tariff" name="ev-tariff" value="0.45" step="0.01" class="form-control">
+                            <span class="input-group-text">€/kWh</span>
+                        </div>
+                        <p class="form-text mt-1">Se usa cuando el cargador no publica precio. Si tienes suscripción (Iberdrola, Endesa X…), pon aquí tu precio medio.</p>
+                    </div>
+                    <div class="form-check">
+                        <input type="checkbox" id="slow-charge-dest" name="slow-charge-dest" class="form-check-input" checked>
+                        <label for="slow-charge-dest" class="form-check-label">Sugerir carga lenta (≤ 22 kW) cerca del destino</label>
+                    </div>
                 </div>
                                         <div class="mb-3">
                             <label class="form-label small">Algoritmo de cálculo</label>
@@ -294,6 +334,13 @@
             </div>
 
             <form id="route-form">
+                <!-- Tipo de vehículo -->
+                <div class="btn-group w-100 mb-2" role="group" aria-label="Tipo de vehículo">
+                    <input type="radio" class="btn-check" name="vehicle-mode" id="mode-gas" value="gas" checked>
+                    <label class="btn btn-outline-primary" for="mode-gas">⛽ Combustión</label>
+                    <input type="radio" class="btn-check" name="vehicle-mode" id="mode-ev" value="ev">
+                    <label class="btn btn-outline-primary" for="mode-ev">⚡ Eléctrico</label>
+                </div>
                 <div class="mb-2 position-relative">
                     <div class="input-group">
                         <input type="text" id="origin" name="origin" class="form-control" placeholder="Origen" aria-label="Origen" autocomplete="off" required>
@@ -314,7 +361,13 @@
                     <input type="text" id="destination" name="destination" class="form-control" placeholder="Destino" aria-label="Destino" autocomplete="off" required>
                     <div id="destination-suggestions" class="position-absolute z-3 w-100 bg-body border border-secondary-subtle rounded-bottom mt-1 d-none shadow-lg list-group"></div>
                 </div>
-                <div class="row g-3 mb-2">
+                <!-- Paradas intermedias (waypoints) -->
+                <div id="waypoints-container"></div>
+                <button type="button" id="add-waypoint-btn" class="btn btn-link btn-sm p-0 mb-2">
+                    <i class="bi bi-plus-circle" aria-hidden="true"></i> Añadir parada intermedia
+                </button>
+                <!-- Campos para vehículos de combustión -->
+                <div id="gas-fields" class="row g-3 mb-2">
                     <div class="col-5">
                         <label for="fuel-type" class="form-label">Combustible</label>
                         <select id="fuel-type" name="fuel-type" class="form-select">
@@ -343,12 +396,38 @@
                         </div>
                     </div>
                 </div>
+                <!-- Campos para vehículos eléctricos -->
+                <div id="ev-fields" class="d-none">
+                    <div class="row g-3 mb-2">
+                        <div class="col-4">
+                            <label for="ev-battery" class="form-label">Batería</label>
+                            <div class="input-group">
+                                <input type="number" id="ev-battery" name="ev-battery" value="60" class="form-control">
+                                <span class="input-group-text mi-parrafo pl-1">kWh</span>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <label for="ev-consumption" class="form-label">Consumo</label>
+                            <div class="input-group">
+                                <input type="number" id="ev-consumption" name="ev-consumption" value="16" step="0.1" class="form-control" title="Consumo medio en kWh/100km">
+                                <span class="input-group-text mi-parrafo pl-1">kWh/100</span>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <label for="vehicle-max-power" class="form-label" title="Potencia máxima de carga que admite tu coche">Carga máx.</label>
+                            <div class="input-group">
+                                <input type="number" id="vehicle-max-power" name="vehicle-max-power" value="100" class="form-control">
+                                <span class="input-group-text mi-parrafo pl-1">kW</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <div class="mb-2">
-                    <label for="current-fuel" class="form-label">Combustible actual: <span id="current-fuel-label">25%</span></label>
+                    <label for="current-fuel" class="form-label"><span id="current-fuel-name">Combustible actual</span>: <span id="current-fuel-label">25%</span></label>
                     <input type="range" id="current-fuel" name="current-fuel" min="0" max="100" value="25" class="form-range">
                 </div>
                 <div class="mb-2">
-                    <label for="final-fuel" class="form-label">Combustible final: <span id="final-fuel-label">25%</span></label>
+                    <label for="final-fuel" class="form-label"><span id="final-fuel-name">Combustible final</span>: <span id="final-fuel-label">25%</span></label>
                     <input type="range" id="final-fuel" name="final-fuel" min="0" max="90" value="25" class="form-range">
                 </div>
                 <button type="submit" id="search-button" class="btn btn-primary w-100 fw-bold py-2 mt-2">
@@ -358,7 +437,11 @@
                     <i class="bi bi-list-check me-2"></i>
                     Buscar Paradas Manuales
                 </button>
-                <p class="form-text mt-1 small text-muted">Elige tus propias paradas de una lista de las 15 gasolineras más baratas en la ruta.</p>
+                <button type="button" id="nearby-btn" class="btn btn-outline-primary w-100 fw-bold py-2 mt-2">
+                    <i class="bi bi-crosshair me-2" aria-hidden="true"></i>
+                    Buscar cerca de mi ubicación
+                </button>
+                <p class="form-text mt-1 small text-muted">Paradas manuales: elige entre las 15 más baratas de la ruta. Cerca de mí: lo más barato alrededor de tu posición.</p>
             </form>
         </div>
 
