@@ -203,7 +203,22 @@
         
         .station-card.selected {
             border-left: 4px solid var(--bs-primary);
-            background-color: #f8f9ff;
+            /* Basado en el color primario para que funcione en claro y oscuro */
+            background-color: rgba(var(--bs-primary-rgb), .08);
+        }
+
+        /* Nombre de gasolinera: morado legible en ambos temas */
+        .station-name {
+            color: #6f42c1;
+        }
+        html[data-bs-theme="dark"] .station-name {
+            color: #c99cff;
+        }
+
+        /* Elemento activo del autocompletado (navegación con teclado) */
+        .list-group-item.active {
+            background-color: var(--bs-primary);
+            border-color: var(--bs-primary);
         }
         
         .selection-badge {
@@ -238,11 +253,11 @@
                 <p class="h4 fw-bold text-body-emphasis">⛽Ahorra en tu viaje </p>
                 <div class="d-flex align-items-center">
 
-                    <button id="settings-btn" class="btn btn-light" title="Abrir configuración">
-                        <i class="bi bi-gear-fill"></i>
+                    <button id="settings-btn" class="btn btn-light" title="Abrir configuración" aria-label="Abrir configuración">
+                        <i class="bi bi-gear-fill" aria-hidden="true"></i>
                     </button>
-                                        <button id="theme-toggle" class=" border-0 bg-transparent p-2 me-2" title="Cambiar modo oscuro/claro">
-                        <i class="bi bi-moon-stars-fill fs-5"></i>
+                                        <button id="theme-toggle" class=" border-0 bg-transparent p-2 me-2" title="Cambiar modo oscuro/claro" aria-label="Cambiar modo oscuro/claro">
+                        <i class="bi bi-moon-stars-fill fs-5" aria-hidden="true"></i>
                     </button>
                 </div>
             </div>
@@ -281,9 +296,9 @@
             <form id="route-form">
                 <div class="mb-2 position-relative">
                     <div class="input-group">
-                        <input type="text" id="origin" name="origin" class="form-control" placeholder="Origen" required>
-                        <button type="button" id="locate-btn" class="btn btn-outline-secondary" title="Usar mi ubicación actual">
-                            <i class="bi bi-geo-alt-fill"></i>
+                        <input type="text" id="origin" name="origin" class="form-control" placeholder="Origen" aria-label="Origen" autocomplete="off" required>
+                        <button type="button" id="locate-btn" class="btn btn-outline-secondary" title="Usar mi ubicación actual" aria-label="Usar mi ubicación actual">
+                            <i class="bi bi-geo-alt-fill" aria-hidden="true"></i>
                         </button>
                     </div>
                     <div id="origin-suggestions" class="position-absolute z-3 w-100 bg-body border border-secondary-subtle rounded-bottom mt-1 d-none shadow-lg list-group"></div>
@@ -296,21 +311,21 @@
                     </div>
                 </div>
                 <div class="mb-2 position-relative">
-                    <input type="text" id="destination" name="destination" class="form-control" placeholder="Destino" required>
+                    <input type="text" id="destination" name="destination" class="form-control" placeholder="Destino" aria-label="Destino" autocomplete="off" required>
                     <div id="destination-suggestions" class="position-absolute z-3 w-100 bg-body border border-secondary-subtle rounded-bottom mt-1 d-none shadow-lg list-group"></div>
                 </div>
                 <div class="row g-3 mb-2">
                     <div class="col-5">
                         <label for="fuel-type" class="form-label">Combustible</label>
                         <select id="fuel-type" name="fuel-type" class="form-select">
-                            <option value="Precio Gasoleo A">Diésel</option>
-                            <option value="Precio Gasolina 95 E5">Gasolina 95</option>
-                            <option value="Precio Gasolina 98 E5">Gasolina 98</option>
-                            <option value="Precio Gasoleo Premium">Diésel Premium</option>
-                            <option value="Precio Gasoleo B">Gasoleo B</option>
-                            <option value="Precio Gases licuados del petróleo">GLP</option>
-                            <option value="Precio Gas Natural Comprimido">GNC</option>
-                            <option value="Precio Gas Natural Licuado">GNL</option>
+                            <option value="GA">Diésel</option>
+                            <option value="G95E5">Gasolina 95</option>
+                            <option value="G98E5">Gasolina 98</option>
+                            <option value="GP">Diésel Premium</option>
+                            <option value="GB">Gasoleo B</option>
+                            <option value="GLP">GLP</option>
+                            <option value="GNC">GNC</option>
+                            <option value="GNL">GNL</option>
                         </select>
                     </div>
                     <div class="col-3">
@@ -365,6 +380,7 @@
         </div>
 
         <footer class="flex-shrink-0 text-center mt-2">
+            <span id="data-date" class="d-block small text-muted"></span>
             <a href="privacidad.html" class="small text-muted">Política de privacidad</a>
         </footer>
     </aside>

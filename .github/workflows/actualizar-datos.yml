@@ -26,30 +26,35 @@ jobs:
             'https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/' \
             -o /tmp/estaciones_raw.json
 
-      - name: Filtrar campos usados por la app
+      - name: Convertir al formato interno de la app
+        # Formato compacto que app.js consume tal cual: números en vez de
+        # strings con comas, claves cortas de combustible y sin campos sobrantes.
         run: |
           mkdir -p data
-          jq -c '{
-            Fecha: .Fecha,
-            ListaEESSPrecio: [.ListaEESSPrecio[] | {
-              "IDEESS": .IDEESS,
-              "Rótulo": ."Rótulo",
-              "Dirección": ."Dirección",
-              "Localidad": .Localidad,
-              "Latitud": .Latitud,
-              "Longitud (WGS84)": ."Longitud (WGS84)",
-              "Tipo Venta": ."Tipo Venta",
-              "Horario": .Horario,
-              "Precio Gasoleo A": ."Precio Gasoleo A",
-              "Precio Gasolina 95 E5": ."Precio Gasolina 95 E5",
-              "Precio Gasolina 98 E5": ."Precio Gasolina 98 E5",
-              "Precio Gasoleo Premium": ."Precio Gasoleo Premium",
-              "Precio Gasoleo B": ."Precio Gasoleo B",
-              "Precio Gases licuados del petróleo": ."Precio Gases licuados del petróleo",
-              "Precio Gas Natural Comprimido": ."Precio Gas Natural Comprimido",
-              "Precio Gas Natural Licuado": ."Precio Gas Natural Licuado"
-            }]
-          }' /tmp/estaciones_raw.json > data/estaciones.json
+          jq -c '
+            def num: gsub(","; ".") | tonumber? // null;
+            {
+              fecha: .Fecha,
+              estaciones: [.ListaEESSPrecio[] | {
+                id: .IDEESS,
+                name: ."Rótulo",
+                address: (."Dirección" + ", " + .Localidad),
+                lat: (.Latitud | num),
+                lon: (."Longitud (WGS84)" | num),
+                tipoVenta: ."Tipo Venta",
+                horario: .Horario,
+                prices: ({
+                  GA: (."Precio Gasoleo A" | num),
+                  G95E5: (."Precio Gasolina 95 E5" | num),
+                  G98E5: (."Precio Gasolina 98 E5" | num),
+                  GP: (."Precio Gasoleo Premium" | num),
+                  GB: (."Precio Gasoleo B" | num),
+                  GLP: (."Precio Gases licuados del petróleo" | num),
+                  GNC: (."Precio Gas Natural Comprimido" | num),
+                  GNL: (."Precio Gas Natural Licuado" | num)
+                } | with_entries(select(.value != null)))
+              } | select(.lat != null and .lon != null)]
+            }' /tmp/estaciones_raw.json > data/estaciones.json
 
       - name: Commit y push si hay cambios
         run: |
