@@ -17,6 +17,8 @@ permissions:
 jobs:
   actualizar:
     runs-on: ubuntu-latest
+    env:
+      OCM_API_KEY: ${{ secrets.OCM_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -29,41 +31,28 @@ jobs:
       - name: Convertir al formato interno de la app
         # Formato compacto que app.js consume tal cual: números en vez de
         # strings con comas, claves cortas de combustible y sin campos sobrantes.
+        run: node scripts/procesar-estaciones.js /tmp/estaciones_raw.json data/estaciones.json
+
+      - name: Descargar y procesar cargadores eléctricos (OpenChargeMap)
+        # Requiere el secret OCM_API_KEY; si no está configurado, se omite.
+        if: env.OCM_API_KEY != ''
         run: |
-          mkdir -p data
-          jq -c '
-            def num: gsub(","; ".") | tonumber? // null;
-            {
-              fecha: .Fecha,
-              estaciones: [.ListaEESSPrecio[] | {
-                id: .IDEESS,
-                name: ."Rótulo",
-                address: (."Dirección" + ", " + .Localidad),
-                lat: (.Latitud | num),
-                lon: (."Longitud (WGS84)" | num),
-                tipoVenta: ."Tipo Venta",
-                horario: .Horario,
-                prices: ({
-                  GA: (."Precio Gasoleo A" | num),
-                  G95E5: (."Precio Gasolina 95 E5" | num),
-                  G98E5: (."Precio Gasolina 98 E5" | num),
-                  GP: (."Precio Gasoleo Premium" | num),
-                  GB: (."Precio Gasoleo B" | num),
-                  GLP: (."Precio Gases licuados del petróleo" | num),
-                  GNC: (."Precio Gas Natural Comprimido" | num),
-                  GNL: (."Precio Gas Natural Licuado" | num)
-                } | with_entries(select(.value != null)))
-              } | select(.lat != null and .lon != null)]
-            }' /tmp/estaciones_raw.json > data/estaciones.json
+          curl -sSf --retry 3 --retry-delay 30 \
+            "https://api.openchargemap.io/v3/poi/?output=json&countrycode=ES&maxresults=50000&compact=true&verbose=false&key=${OCM_API_KEY}" \
+            -o /tmp/ocm_raw.json
+          curl -sSf --retry 3 --retry-delay 30 \
+            "https://api.openchargemap.io/v3/referencedata/?key=${OCM_API_KEY}" \
+            -o /tmp/ocm_ref.json
+          node scripts/procesar-cargadores.js /tmp/ocm_raw.json /tmp/ocm_ref.json data/cargadores.json
 
       - name: Commit y push si hay cambios
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/estaciones.json
+          git add data/
           if git diff --cached --quiet; then
             echo "Sin cambios en los datos."
           else
-            git commit -m "chore: actualizar datos de gasolineras"
+            git commit -m "chore: actualizar datos de gasolineras y cargadores"
             git push
           fi

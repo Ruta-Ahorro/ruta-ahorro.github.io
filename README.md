@@ -7,7 +7,9 @@ las paradas de repostaje para ahorrar dinero en cada viaje.
 
 ## Cómo funciona
 
-1. Introduces origen y destino (con autocompletado y opción de usar tu ubicación).
+0. Eliges el tipo de vehículo: **⛽ combustión** o **⚡ eléctrico**.
+1. Introduces origen y destino (con autocompletado y opción de usar tu ubicación),
+   y si quieres, paradas intermedias para rutas largas.
 2. Configuras tu vehículo: tipo de combustible, capacidad del depósito, consumo
    y nivel de combustible actual/deseado al llegar. La configuración se recuerda
    entre visitas.
@@ -18,7 +20,19 @@ las paradas de repostaje para ahorrar dinero en cada viaje.
      por parada y repostaje mínimo para evitar planes con muchas paradas pequeñas.
 4. También puedes elegir tus paradas a mano entre las 15 gasolineras más baratas de la ruta.
 5. El plan se abre directamente en Google Maps con todas las paradas como waypoints.
-6. Las rutas son compartibles: la URL incluye `?origen=...&destino=...`.
+6. Las rutas son compartibles: la URL incluye `?origen=...&destino=...` (y `&paradas=`, `&modo=ev`).
+7. "Buscar cerca de mi ubicación" lista lo más barato alrededor de tu posición, en ambos modos.
+
+### Modo eléctrico
+
+- Configuras batería (kWh), consumo (kWh/100 km) y la potencia máxima de carga de tu coche.
+- Puedes filtrar los cargadores por potencia mínima (22/50/100/150 kW).
+- Se usa el precio publicado del cargador cuando existe; si no, tu tarifa por defecto
+  (ahí puedes reflejar tu suscripción). Los cargadores gratuitos aparecen como "Gratis".
+- Cada parada muestra el tiempo de carga estimado y, al llegar, se sugieren
+  cargadores lentos (≤ 22 kW) cerca del destino.
+- En combustión, los descuentos por marca (Waylet, etc.) se configuran en cts/L
+  y se aplican a la optimización; también hay filtro de estaciones con AdBlue.
 
 ## Datos y servicios
 
@@ -28,6 +42,10 @@ las paradas de repostaje para ahorrar dinero en cada viaje.
   (números y claves cortas, ~2,4 MB frente a los ~12 MB del API) y los publica en
   [`data/estaciones.json`](data/estaciones.json), de modo que la app los carga
   desde el propio sitio sin depender de proxies CORS.
+- **Puntos de carga eléctrica:** [OpenChargeMap](https://openchargemap.org/). El mismo workflow
+  los descarga (requiere el secret `OCM_API_KEY` en GitHub) y los procesa con
+  [`scripts/procesar-cargadores.js`](scripts/procesar-cargadores.js) a
+  [`data/cargadores.json`](data/cargadores.json).
 - **Geocodificación y autocompletado:** [Nominatim](https://nominatim.org/) (OpenStreetMap).
 - **Cálculo de rutas:** [OSRM](https://project-osrm.org/).
 - **Mapa:** [Leaflet](https://leafletjs.com/) con teselas de OpenStreetMap.

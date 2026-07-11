@@ -1,5 +1,5 @@
 // A name for our cache - INCREMENTAR VERSION PARA FORZAR ACTUALIZACIÓN
-const CACHE_NAME = 'gas-ruta-cache-v2.3';
+const CACHE_NAME = 'gas-ruta-cache-v2.4';
 
 // The URLs we want to cache. These are the "app shell" files.
 // Las versiones de los CDN deben coincidir con las de index.html.

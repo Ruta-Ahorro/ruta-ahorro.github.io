@@ -75,6 +75,8 @@ let map;
 let routeLayer;
 let stationMarkers = L.layerGroup();
 let allGasStations = [];
+let allChargers = [];        // Puntos de carga eléctrica (se cargan al activar el modo EV)
+let chargersLoading = null;  // Promise de carga en curso para no pedirlos dos veces
 let currentRouteData = null; // Para almacenar datos de la ruta actual
 let currentRouteStations = []; // Para almacenar gasolineras de la ruta actual
 let manualSearchBtn; // Declarar como variable global
@@ -94,16 +96,25 @@ const API_PRICE_FIELDS = {
 
 // --- Persistencia de configuración del usuario ---
 const SETTINGS_KEY = 'rutaAhorroSettings';
-const SETTING_IDS = ['fuel-type', 'tank-capacity', 'consumption', 'current-fuel', 'final-fuel', 'search-radius', 'include-restricted'];
+const SETTING_IDS = [
+    'fuel-type', 'tank-capacity', 'consumption', 'current-fuel', 'final-fuel',
+    'search-radius', 'include-restricted', 'adblue-filter',
+    'ev-battery', 'ev-consumption', 'vehicle-max-power', 'min-charge-power',
+    'ev-tariff', 'slow-charge-dest'
+];
 
 function saveSettings() {
     const settings = {};
     for (const id of SETTING_IDS) {
         const el = document.getElementById(id);
+        if (!el) continue;
         settings[id] = el.type === 'checkbox' ? el.checked : el.value;
     }
     const algo = document.querySelector('input[name="algorithm"]:checked');
     if (algo) settings.algorithm = algo.value;
+    const mode = document.querySelector('input[name="vehicle-mode"]:checked');
+    if (mode) settings.vehicleMode = mode.value;
+    settings.discounts = getDiscounts();
     try {
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     } catch (e) { /* almacenamiento no disponible: ignorar */ }
@@ -119,6 +130,7 @@ function loadSettings() {
     for (const id of SETTING_IDS) {
         if (!(id in settings)) continue;
         const el = document.getElementById(id);
+        if (!el) continue;
         if (el.type === 'checkbox') {
             el.checked = !!settings[id];
         } else {
@@ -134,16 +146,113 @@ function loadSettings() {
         const radio = document.querySelector(`input[name="algorithm"][value="${settings.algorithm}"]`);
         if (radio) radio.checked = true;
     }
+    if (Array.isArray(settings.discounts)) {
+        settings.discounts.forEach(d => addDiscountRow(d.brand, d.cents));
+    }
+    if (settings.vehicleMode === 'ev') {
+        const evRadio = document.getElementById('mode-ev');
+        if (evRadio) evRadio.checked = true;
+    }
     // Sincronizar las etiquetas de los sliders con los valores restaurados
     currentFuelLabel.textContent = `${currentFuelSlider.value}%`;
     finalFuelLabel.textContent = `${finalFuelSlider.value}%`;
     searchRadiusLabel.textContent = searchRadiusSlider.value;
 }
 
-// --- Rutas compartibles: ?origen=...&destino=... ---
+// --- Modo de vehículo (combustión / eléctrico) ---
+function getVehicleMode() {
+    return document.querySelector('input[name="vehicle-mode"]:checked')?.value || 'gas';
+}
+
+function setVehicleMode(mode) {
+    const isEV = mode === 'ev';
+    document.getElementById('gas-fields').classList.toggle('d-none', isEV);
+    document.getElementById('ev-fields').classList.toggle('d-none', !isEV);
+    document.querySelectorAll('.gas-only').forEach(el => el.classList.toggle('d-none', isEV));
+    document.querySelectorAll('.ev-only').forEach(el => el.classList.toggle('d-none', !isEV));
+    document.getElementById('current-fuel-name').textContent = isEV ? 'Batería actual' : 'Combustible actual';
+    document.getElementById('final-fuel-name').textContent = isEV ? 'Batería en destino' : 'Combustible final';
+    if (isEV) fetchChargers(); // carga perezosa de los puntos de carga
+}
+
+// --- Descuentos por marca (suscripciones / tarjetas) ---
+function addDiscountRow(brand = '', cents = '') {
+    const container = document.getElementById('discounts-container');
+    const row = document.createElement('div');
+    row.className = 'input-group input-group-sm mb-1 discount-row';
+    row.innerHTML = `
+        <input type="text" class="form-control discount-brand" placeholder="Marca (ej. REPSOL)" aria-label="Marca">
+        <input type="number" class="form-control discount-cents" placeholder="cts/L" aria-label="Descuento en céntimos por litro" step="0.1" min="0" style="max-width: 6rem;">
+        <button type="button" class="btn btn-outline-danger discount-remove" aria-label="Quitar descuento">&times;</button>
+    `;
+    row.querySelector('.discount-brand').value = brand;
+    row.querySelector('.discount-cents').value = cents;
+    row.querySelector('.discount-remove').addEventListener('click', () => {
+        row.remove();
+        saveSettings();
+    });
+    container.appendChild(row);
+}
+
+function getDiscounts() {
+    return [...document.querySelectorAll('.discount-row')]
+        .map(row => ({
+            brand: row.querySelector('.discount-brand').value.trim(),
+            cents: parseFloat(row.querySelector('.discount-cents').value) || 0
+        }))
+        .filter(d => d.brand && d.cents > 0);
+}
+
+// Devuelve una copia de las estaciones con los descuentos aplicados al
+// combustible seleccionado (coincidencia por texto contenido en el rótulo).
+function applyDiscounts(stations, fuelType) {
+    const discounts = getDiscounts();
+    if (discounts.length === 0) return stations;
+    return stations.map(s => {
+        const rule = discounts.find(d => (s.name || '').toUpperCase().includes(d.brand.toUpperCase()));
+        if (!rule || !s.prices[fuelType]) return s;
+        return {
+            ...s,
+            prices: { ...s.prices, [fuelType]: Math.max(0, s.prices[fuelType] - rule.cents / 100) }
+        };
+    });
+}
+
+// --- Rutas compartibles: ?origen=...&destino=...&paradas=a|b&modo=ev ---
 function updateShareUrl(origin, destination) {
     const params = new URLSearchParams({ origen: origin, destino: destination });
+    const waypoints = getWaypointValues();
+    if (waypoints.length > 0) params.set('paradas', waypoints.join('|'));
+    if (getVehicleMode() === 'ev') params.set('modo', 'ev');
     history.replaceState(null, '', `${location.pathname}?${params}`);
+}
+
+// --- Paradas intermedias (waypoints) ---
+function addWaypointInput(value = '') {
+    const container = document.getElementById('waypoints-container');
+    const index = container.children.length;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'mb-2 position-relative waypoint-wrapper';
+    wrapper.innerHTML = `
+        <div class="input-group">
+            <span class="input-group-text"><i class="bi bi-signpost" aria-hidden="true"></i></span>
+            <input type="text" class="form-control waypoint-input" placeholder="Parada intermedia" aria-label="Parada intermedia" autocomplete="off">
+            <button type="button" class="btn btn-outline-danger waypoint-remove" aria-label="Quitar parada">&times;</button>
+        </div>
+        <div class="position-absolute z-3 w-100 bg-body border border-secondary-subtle rounded-bottom mt-1 d-none shadow-lg list-group waypoint-suggestions"></div>
+    `;
+    const input = wrapper.querySelector('.waypoint-input');
+    input.value = value;
+    wrapper.querySelector('.waypoint-remove').addEventListener('click', () => wrapper.remove());
+    container.appendChild(wrapper);
+    setupAutocomplete(input, wrapper.querySelector('.waypoint-suggestions'));
+    return input;
+}
+
+function getWaypointValues() {
+    return [...document.querySelectorAll('.waypoint-input')]
+        .map(el => el.value.trim())
+        .filter(Boolean);
 }
 
 // --- Initialization ---
@@ -171,13 +280,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Restaurar la configuración guardada y guardarla en cada cambio
     loadSettings();
+    setVehicleMode(getVehicleMode());
     form.addEventListener('change', saveSettings);
     settingsPanel.addEventListener('change', saveSettings);
+
+    // Conmutador combustión / eléctrico
+    document.querySelectorAll('input[name="vehicle-mode"]').forEach(radio => {
+        radio.addEventListener('change', () => setVehicleMode(getVehicleMode()));
+    });
+
+    // Paradas intermedias y descuentos
+    document.getElementById('add-waypoint-btn').addEventListener('click', () => addWaypointInput().focus());
+    document.getElementById('add-discount-btn').addEventListener('click', () => addDiscountRow());
+
+    // Búsqueda alrededor de la ubicación actual
+    document.getElementById('nearby-btn').addEventListener('click', handleNearbySearch);
 
     // Ruta compartida por URL: rellenar y buscar cuando carguen los datos
     const urlParams = new URLSearchParams(location.search);
     const sharedOrigin = urlParams.get('origen');
     const sharedDestination = urlParams.get('destino');
+    if (urlParams.get('modo') === 'ev') {
+        document.getElementById('mode-ev').checked = true;
+        setVehicleMode('ev');
+    }
+    if (urlParams.get('paradas')) {
+        urlParams.get('paradas').split('|').filter(Boolean).forEach(p => addWaypointInput(p));
+    }
     if (sharedOrigin && sharedDestination) {
         originInput.value = sharedOrigin;
         destinationInput.value = sharedDestination;
@@ -232,6 +361,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!destinationInput.contains(e.target) && !destinationSuggestions.contains(e.target)) {
             destinationSuggestions.classList.add('d-none');
         }
+        // Sugerencias de las paradas intermedias
+        document.querySelectorAll('.waypoint-wrapper').forEach(wrapper => {
+            if (!wrapper.contains(e.target)) {
+                wrapper.querySelector('.waypoint-suggestions').classList.add('d-none');
+            }
+        });
     });
 
     newRouteBtn.addEventListener('click', resetUI);
@@ -282,28 +417,37 @@ async function handleManualSearch() {
     }
     
     showSpinner();
-    
+
     try {
-        // Geocodificar direcciones
-        let originCoords, destCoords;
+        const waypointTexts = getWaypointValues();
+        const params = getEffectiveParams();
+        const stations = await getActiveStations(params);
+
+        // Geocodificar origen, paradas intermedias y destino
+        let points;
         try {
-            [originCoords, destCoords] = await Promise.all([geocodeAddress(originText), geocodeAddress(destinationText)]);
+            points = await Promise.all([
+                geocodeAddress(originText),
+                ...waypointTexts.map(w => geocodeAddress(w)),
+                geocodeAddress(destinationText)
+            ]);
         } catch (e) {
             throw new Error("Error de conexión con el servicio de mapas (Nominatim) al buscar direcciones.");
         }
-        
-        if (!originCoords || !destCoords) {
-            throw new Error("No se pudieron geolocalizar las direcciones. Intenta ser más específico o revisa tu conexión.");
+
+        if (points.some(p => !p)) {
+            throw new Error("No se pudieron geolocalizar todas las direcciones. Intenta ser más específico o revisa tu conexión.");
         }
+        const destCoords = points[points.length - 1];
 
         // Obtener ruta
         let routeData;
         try {
-            routeData = await getRoute(originCoords, destCoords);
+            routeData = await getRoute(points);
         } catch (e) {
             throw new Error("Error al calcular la ruta. Verifica tu conexión a internet.");
         }
-        
+
         if (!routeData) {
             throw new Error("No se pudo calcular la ruta entre los puntos especificados.");
         }
@@ -315,7 +459,7 @@ async function handleManualSearch() {
             "weight": 2,
             "opacity": 0.8
         };
-        
+
         // Limpiar mapa anterior y mostrar nueva ruta
         if (routeLayer) {
             map.removeLayer(routeLayer);
@@ -323,19 +467,15 @@ async function handleManualSearch() {
         routeLayer = L.geoJSON(routeLine, { style: miEstilo }).addTo(map);
         map.invalidateSize();
         map.fitBounds(routeLayer.getBounds().pad(0.1));
-        
+
         const routeDistance = turf.length(routeLine, { units: 'kilometers' });
 
-        // Preparar parámetros para la búsqueda manual
-        const params = {
-            fuelType: document.getElementById('fuel-type').value,
-            tankCapacity: parseFloat(document.getElementById('tank-capacity').value),
-            currentFuelPercent: parseFloat(document.getElementById('current-fuel').value),
-            finalFuelPercent: parseFloat(document.getElementById('final-fuel').value),
-            consumption: parseFloat(document.getElementById('consumption').value) || 6.5,
-            searchRadius: parseFloat(document.getElementById('search-radius').value),
-            includeRestricted: document.getElementById('include-restricted').checked
-        };
+        // Posición de las paradas intermedias sobre la ruta
+        const waypointCoords = points.slice(1, -1).map(p => {
+            const nearest = turf.nearestPointOnLine(routeLine, turf.point([p.lon, p.lat]));
+            const distanceFromStart = turf.distance(turf.point(routeLine.geometry.coordinates[0]), nearest, { units: 'kilometers' });
+            return { lat: p.lat, lon: p.lon, distanceFromStart };
+        });
 
         // Almacenar datos para ruta manual
         currentRouteData = {
@@ -343,7 +483,10 @@ async function handleManualSearch() {
             routeDistance: routeDistance,
             origin: originText,
             destination: destinationText,
-            params: params
+            destCoords: destCoords,
+            waypoints: waypointCoords,
+            params: params,
+            stations: stations
         };
 
         // URL compartible con la ruta calculada
@@ -355,13 +498,15 @@ async function handleManualSearch() {
         const cheapestStations = getCheapestStationsOnRoute(
             routeLine,
             params,
-            allGasStations,
+            stations,
             originText,
             destinationText
         );
 
         if (cheapestStations.length === 0) {
-            showMessage('error', 'No se encontraron gasolineras baratas en la ruta. Intenta aumentar la distancia de búsqueda en la configuración.');
+            showMessage('error', params.mode === 'ev'
+                ? 'No se encontraron puntos de carga en la ruta. Prueba a bajar la potencia mínima o aumentar la distancia de búsqueda.'
+                : 'No se encontraron gasolineras baratas en la ruta. Intenta aumentar la distancia de búsqueda en la configuración.');
             return;
         }
         
@@ -813,10 +958,100 @@ async function fetchGasStations() {
     }
 }
 
+/**
+ * Carga perezosa de los puntos de carga eléctrica (data/cargadores.json,
+ * generado por GitHub Actions a partir de OpenChargeMap).
+ */
+async function fetchChargers() {
+    if (allChargers.length > 0) return allChargers;
+    if (chargersLoading) return chargersLoading;
+    chargersLoading = (async () => {
+        try {
+            const response = await fetch('/data/cargadores.json');
+            if (!response.ok) throw new Error(`La petición falló con estado ${response.status}`);
+            const data = await response.json();
+            allChargers = Array.isArray(data.cargadores) ? data.cargadores : [];
+            console.log(`Cargados ${allChargers.length} puntos de carga.`);
+            return allChargers;
+        } catch (error) {
+            console.error('Error cargando puntos de carga:', error);
+            showMessage('error', 'No se pudieron cargar los puntos de carga eléctrica. Comprueba tu conexión e inténtalo de nuevo.');
+            return [];
+        } finally {
+            chargersLoading = null;
+        }
+    })();
+    return chargersLoading;
+}
+
+// Parámetros de búsqueda según el modo de vehículo. Para eléctricos se
+// reutiliza el mismo modelo del worker: batería = depósito, kWh = litros.
+function getEffectiveParams() {
+    const mode = getVehicleMode();
+    const base = {
+        mode,
+        currentFuelPercent: parseFloat(document.getElementById('current-fuel').value),
+        finalFuelPercent: parseFloat(document.getElementById('final-fuel').value),
+        searchRadius: parseFloat(document.getElementById('search-radius').value),
+        includeRestricted: document.getElementById('include-restricted').checked,
+        algorithm: document.querySelector('input[name="algorithm"]:checked').value
+    };
+    if (mode === 'ev') {
+        return {
+            ...base,
+            fuelType: 'EV',
+            tankCapacity: parseFloat(document.getElementById('ev-battery').value) || 60,
+            consumption: parseFloat(document.getElementById('ev-consumption').value) || 16,
+            minChargePower: parseFloat(document.getElementById('min-charge-power').value) || 0,
+            vehicleMaxPower: parseFloat(document.getElementById('vehicle-max-power').value) || 100,
+            tariff: parseFloat(document.getElementById('ev-tariff').value) || 0.45
+        };
+    }
+    return {
+        ...base,
+        fuelType: document.getElementById('fuel-type').value,
+        tankCapacity: parseFloat(document.getElementById('tank-capacity').value),
+        consumption: parseFloat(document.getElementById('consumption').value) || 6.5
+    };
+}
+
+// Dataset activo según el modo, en la forma que espera el worker.
+async function getActiveStations(params) {
+    if (params.mode === 'ev') {
+        const chargers = await fetchChargers();
+        return chargers
+            .filter(c => c.kw >= (params.minChargePower || 0))
+            .map(c => ({
+                id: c.id,
+                name: c.name,
+                address: c.address,
+                lat: c.lat,
+                lon: c.lon,
+                tipoVenta: 'P',
+                kw: c.kw,
+                precioTexto: c.precioTexto,
+                // El campo horario se muestra en las tarjetas: aquí va la info útil del cargador
+                horario: `${c.kw} kW ${c.dc ? 'DC' : 'AC'}${c.puntos ? ` · ${c.puntos} ${c.puntos === 1 ? 'punto' : 'puntos'}` : ''}${c.op ? ` · ${c.op}` : ''}`,
+                // Precio real publicado si existe; si no, la tarifa del usuario
+                prices: { EV: c.precio ?? params.tariff }
+            }));
+    }
+    let stations = allGasStations;
+    if (document.getElementById('adblue-filter').checked) {
+        stations = stations.filter(s => s.prices.ADBLUE != null);
+    }
+    return applyDiscounts(stations, params.fuelType);
+}
+
+// Unidades de presentación según el modo
+const priceUnit = (params) => params.fuelType === 'EV' ? '€/kWh' : '€/L';
+const amountUnit = (params) => params.fuelType === 'EV' ? 'kWh' : 'L';
+const formatPrice = (value, params) =>
+    (value === 0 && params.fuelType === 'EV') ? 'Gratis' : `${value.toFixed(3)} ${priceUnit(params)}`;
+
 async function handleFormSubmit(e) {
     e.preventDefault();
     showSpinner();
-    //showMessage('loading', 'Calculando la mejor ruta y paradas...');
     if (routeLayer) map.removeLayer(routeLayer);
     stationMarkers.clearLayers();
     resultsDiv.innerHTML = '';
@@ -824,36 +1059,56 @@ async function handleFormSubmit(e) {
     try {
         const originText = originInput.value;
         const destinationText = destinationInput.value;
+        const waypointTexts = getWaypointValues();
+        const params = getEffectiveParams();
+        const stations = await getActiveStations(params);
 
-        let originCoords, destCoords;
+        if (stations.length === 0) {
+            throw new Error(params.mode === 'ev'
+                ? 'No hay puntos de carga disponibles con la potencia mínima seleccionada. Baja el filtro de potencia en la configuración.'
+                : 'No hay estaciones disponibles con los filtros actuales.');
+        }
+
+        // Geocodificar origen, paradas intermedias y destino
+        let points;
         try {
-            [originCoords, destCoords] = await Promise.all([geocodeAddress(originText), geocodeAddress(destinationText)]);
+            points = await Promise.all([
+                geocodeAddress(originText),
+                ...waypointTexts.map(w => geocodeAddress(w)),
+                geocodeAddress(destinationText)
+            ]);
         } catch (e) {
             throw new Error("Error de conexión con el servicio de mapas (Nominatim) al buscar direcciones.");
         }
-        
-        if (!originCoords || !destCoords) throw new Error("No se pudieron geolocalizar las direcciones. Intenta ser más específico o revisa tu conexión.");
+
+        if (points.some(p => !p)) throw new Error("No se pudieron geolocalizar todas las direcciones. Intenta ser más específico o revisa tu conexión.");
+
+        const destCoords = points[points.length - 1];
 
         let routeData;
         try {
-            routeData = await getRoute(originCoords, destCoords);
+            routeData = await getRoute(points);
         } catch (e) {
             throw new Error("Error de conexión con el servicio de rutas (OSRM). No se pudo calcular la ruta.");
         }
-        
-        if (!routeData) throw new Error("No se pudo encontrar una ruta válida entre el origen y el destino.");
+
+        if (!routeData) throw new Error("No se pudo encontrar una ruta válida entre los puntos indicados.");
 
         const routeLine = turf.lineString(routeData.geometry.coordinates);
-        var miEstilo = {
-    "color": "#4138c2", // El color de la línea, en este caso azul oscuro. 🔵
-    "weight": 2,        // El grosor de la línea en píxeles.
-    "opacity": 0.8      // La transparencia de la línea.
-};
+        const miEstilo = { color: "#4138c2", weight: 2, opacity: 0.8 };
         routeLayer = L.geoJSON(routeLine, { style: miEstilo }).addTo(map);
-                // Force the map to re-evaluate its size before fitting the bounds
-                map.invalidateSize();
+        // Force the map to re-evaluate its size before fitting the bounds
+        map.invalidateSize();
         map.fitBounds(routeLayer.getBounds().pad(0.1));
         const routeDistance = turf.length(routeLine, { units: 'kilometers' });
+
+        // Posición de las paradas intermedias a lo largo de la ruta (para
+        // ordenarlas junto a los repostajes en el enlace de Google Maps)
+        const waypointCoords = points.slice(1, -1).map(p => {
+            const nearest = turf.nearestPointOnLine(routeLine, turf.point([p.lon, p.lat]));
+            const distanceFromStart = turf.distance(turf.point(routeLine.geometry.coordinates[0]), nearest, { units: 'kilometers' });
+            return { lat: p.lat, lon: p.lon, distanceFromStart };
+        });
 
         // --- Web Worker Implementation ---
         const worker = new Worker('worker.js');
@@ -873,29 +1128,29 @@ async function handleFormSubmit(e) {
                     routeDistance: routeDistance,
                     origin: origin,
                     destination: destination,
+                    destCoords: destCoords,
+                    waypoints: waypointCoords,
                     params: params,
+                    stations: stations,
                     lastResults: results
                 };
-                
+
                 displayResults(results, origin, destination);
-                
-                // Hide form and show summary
+
+                // Sugerir carga lenta cerca del destino (solo eléctricos)
+                if (params.mode === 'ev' && document.getElementById('slow-charge-dest').checked) {
+                    appendDestinationChargers(destCoords);
+                }
+
                 form.classList.add('d-none');
-                const formData = new FormData(form);
-                const fuelTypeEl = form.elements['fuel-type'];
-               // summaryContent.innerHTML = `
-              //      <p><strong>Origen:</strong> ${formData.get('origin')}</p>
-              //      <p><strong>Destino:</strong> ${formData.get('destination')}</p>
-              //      <p><strong>Combustible:</strong> ${fuelTypeEl.options[fuelTypeEl.selectedIndex].text}</p>
-              //      <p><strong>Consumo:</strong> ${formData.get('consumption')} L/100km</p>
-              //  `;
-              //  summaryContainer.classList.remove('d-none');
             } else {
                 console.error('Main: Error message received from worker.', error);
                 // Custom, more user-friendly error messages
                 let userMessage = error;
-                if (error.includes("No hay gasolineras alcanzables") || error.includes("No hay gasolineras adecuadas")) {
-                    userMessage = "No se encontraron gasolineras adecuadas para completar la ruta con la configuración actual. Prueba a aumentar la distancia de búsqueda en la configuración.";
+                if (error.includes("alcanzables") || error.includes("adecuadas")) {
+                    userMessage = params.mode === 'ev'
+                        ? "No se encontraron puntos de carga adecuados para completar la ruta. Prueba a bajar la potencia mínima o aumentar la distancia de búsqueda en la configuración."
+                        : "No se encontraron gasolineras adecuadas para completar la ruta con la configuración actual. Prueba a aumentar la distancia de búsqueda en la configuración.";
                 }
                 showMessage('error', userMessage);
             }
@@ -910,25 +1165,13 @@ async function handleFormSubmit(e) {
             worker.terminate();
         };
 
-        // Collect parameters to send to the worker
-        const params = {
-            fuelType: document.getElementById('fuel-type').value,
-            tankCapacity: parseFloat(document.getElementById('tank-capacity').value),
-            currentFuelPercent: parseFloat(document.getElementById('current-fuel').value),
-            finalFuelPercent: parseFloat(document.getElementById('final-fuel').value),
-            consumption: parseFloat(document.getElementById('consumption').value) || 6.5,
-            searchRadius: parseFloat(document.getElementById('search-radius').value),
-            includeRestricted: document.getElementById('include-restricted').checked,
-            algorithm: document.querySelector('input[name="algorithm"]:checked').value
-        };
-
         console.log('Main: Posting message to worker.');
         // Post data to the worker to start calculation.
         worker.postMessage({
             routeLine,
             routeDistance,
             params,
-            allGasStations,
+            allGasStations: stations,
             origin: originText,
             destination: destinationText
         });
@@ -957,8 +1200,10 @@ async function geocodeAddress(address) {
     }
 }
 
-async function getRoute(origin, dest) {
-    const url = `https://router.project-osrm.org/route/v1/driving/${origin.lon},${origin.lat};${dest.lon},${dest.lat}?overview=full&geometries=geojson`;
+// Calcula la ruta pasando por todos los puntos (origen, paradas intermedias, destino)
+async function getRoute(points) {
+    const coords = points.map(p => `${p.lon},${p.lat}`).join(';');
+    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
     const response = await fetch(url);
     const data = await response.json();
     return (data.code === 'Ok' && data.routes.length > 0) ? data.routes[0] : null;
@@ -1041,7 +1286,7 @@ function updateMapMarkers(stations) {
         const icon = L.divIcon({ html: markerHtml, className: '', iconSize: [28, 28], iconAnchor: [14, 14] });
 
         L.marker([station.lat, station.lon], { icon })
-            .bindPopup(`<b>Parada ${stopIndex}: ${station.name}</b><br>${station.address}<br>Precio: ${station.prices[currentRouteData.params.fuelType].toFixed(3)} €/L<br>Km ${Math.round(station.distanceFromStart)} desde origen`)
+            .bindPopup(`<b>Parada ${stopIndex}: ${station.name}</b><br>${station.address}<br>Precio: ${station.prices[currentRouteData.params.fuelType].toFixed(3)} ${priceUnit(currentRouteData.params)}<br>Km ${Math.round(station.distanceFromStart)} desde origen`)
             .addTo(stationMarkers);
     });
     
@@ -1120,8 +1365,9 @@ function showManualRouteOptions(origin, destination, preCalculatedStations = nul
         return;
     }
 
-    if (!allGasStations || allGasStations.length === 0) {
-        alert('Los datos de gasolineras aún no están disponibles. Por favor, espera un momento e inténtalo de nuevo.');
+    const datasetForRoute = currentRouteData.stations || allGasStations;
+    if (!datasetForRoute || datasetForRoute.length === 0) {
+        alert('Los datos aún no están disponibles. Por favor, espera un momento e inténtalo de nuevo.');
         return;
     }
 
@@ -1135,7 +1381,7 @@ function showManualRouteOptions(origin, destination, preCalculatedStations = nul
         cheapestStations = getCheapestStationsOnRoute(
             currentRouteData.routeLine,
             currentRouteData.params,
-            allGasStations,
+            datasetForRoute,
             origin,
             destination
         );
@@ -1222,7 +1468,7 @@ resultsDiv.appendChild(headerContainer);
                     <span class="small text-muted">Km ${Math.round(station.distanceFromStart)}${station.distanceToRoute != null ? ` · a ${station.distanceToRoute.toFixed(1)} km de la ruta` : ''}</span></p>
                 </div>
                 <div class="text-end ms-2">
-                    <p class="h6 fw-bold text-body-emphasis mb-0">${station.prices[currentRouteData.params.fuelType].toFixed(3)} €/L</p>
+                    <p class="h6 fw-bold text-body-emphasis mb-0">${station.prices[currentRouteData.params.fuelType].toFixed(3)} ${priceUnit(currentRouteData.params)}</p>
                 </div>
             </div>
         `;
@@ -1301,11 +1547,14 @@ resultsDiv.appendChild(headerContainer);
             return cheapestStations[index];
         });
 
-        // Ordenar por distancia desde origen
-        selectedStations.sort((a, b) => a.distanceFromStart - b.distanceFromStart);
+        // Ordenar estaciones y paradas intermedias por su posición en la ruta
+        const allPoints = [
+            ...selectedStations.map(s => ({ lat: s.lat, lon: s.lon, distanceFromStart: s.distanceFromStart })),
+            ...(currentRouteData?.waypoints || [])
+        ].sort((a, b) => a.distanceFromStart - b.distanceFromStart);
 
         // Generar URL de Google Maps
-        const waypoints = selectedStations.map(s => `${s.lat},${s.lon}`).join('|');
+        const waypoints = allPoints.map(p => `${p.lat},${p.lon}`).join('|');
         const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&waypoints=${encodeURIComponent(waypoints)}`;
 
         // Abrir en nueva pestaña
@@ -1321,11 +1570,16 @@ resultsDiv.appendChild(headerContainer);
 
 function displayResults(results, origin, destination) {
     const stops = results.stops;
+    const params = currentRouteData?.params || getEffectiveParams();
+    const isEV = params.fuelType === 'EV';
+
     if (stops.length === 0) {
-        if (allGasStations.length === 0) {
+        if (allGasStations.length === 0 && !isEV) {
              showMessage('error', 'Error crítico: No se pudieron cargar los datos de las gasolineras. Por favor, recarga la página.');
         } else {
-             showMessage('info', '¡Buenas noticias! Con tu nivel de combustible actual, puedes llegar a tu destino sin necesidad de repostar.');
+             showMessage('info', isEV
+                ? '¡Buenas noticias! Con tu nivel de batería actual, puedes llegar a tu destino sin necesidad de cargar.'
+                : '¡Buenas noticias! Con tu nivel de combustible actual, puedes llegar a tu destino sin necesidad de repostar.');
         }
         return;
     }
@@ -1333,26 +1587,32 @@ function displayResults(results, origin, destination) {
     messageContainer.classList.add('d-none');
     resultsContainer.classList.remove('d-none');
     resultsDiv.innerHTML = '';
-    
+
     const title = document.createElement('h3');
     title.className = "h5 fw-bold text-body-emphasis mb-2";
-    title.textContent = "Plan de paradas sugeridas";
+    title.textContent = isEV ? "Plan de cargas sugeridas" : "Plan de paradas sugeridas";
     resultsDiv.appendChild(title);
 
     // Resumen del viaje
-    const totalLiters = stops.reduce((total, stop) => total + stop.refuelAmount, 0);
+    const totalAmount = stops.reduce((total, stop) => total + stop.refuelAmount, 0);
     const summary = document.createElement('div');
     summary.className = 'p-2 bg-body-tertiary border rounded-3 mb-2 small';
     summary.innerHTML = `
         <div class="d-flex justify-content-between"><span>Distancia</span><span class="fw-bold">${Math.round(currentRouteData?.routeDistance || 0)} km</span></div>
         <div class="d-flex justify-content-between"><span>Paradas</span><span class="fw-bold">${stops.length}</span></div>
-        <div class="d-flex justify-content-between"><span>Combustible a repostar</span><span class="fw-bold">${totalLiters.toFixed(1)} L</span></div>
+        <div class="d-flex justify-content-between"><span>${isEV ? 'Energía a cargar' : 'Combustible a repostar'}</span><span class="fw-bold">${totalAmount.toFixed(1)} ${amountUnit(params)}</span></div>
         <div class="d-flex justify-content-between"><span>Coste total</span><span class="fw-bold">${results.optimalCost.toFixed(2)} €</span></div>
     `;
     resultsDiv.appendChild(summary);
 
                 if (stops.length > 0) {
-        const waypoints = stops.map(s => `${s.lat},${s.lon}`).join('|');
+        // Enlace de Google Maps: paradas de repostaje/carga + paradas
+        // intermedias del usuario, ordenadas por su posición en la ruta
+        const allPoints = [
+            ...stops.map(s => ({ lat: s.lat, lon: s.lon, distanceFromStart: s.distanceFromStart })),
+            ...(currentRouteData?.waypoints || [])
+        ].sort((a, b) => a.distanceFromStart - b.distanceFromStart);
+        const waypoints = allPoints.map(p => `${p.lat},${p.lon}`).join('|');
         const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&waypoints=${encodeURIComponent(waypoints)}`;
 
         const buttonContainer = document.createElement('div');
@@ -1384,6 +1644,13 @@ function displayResults(results, origin, destination) {
         }
     }
     stops.forEach((station, index) => {
+        // Tiempo de carga estimado para eléctricos (limitado por el coche y el cargador)
+        let chargeTimeLine = '';
+        if (isEV && station.kw) {
+            const effectiveKW = Math.min(station.kw, params.vehicleMaxPower || station.kw);
+            const minutes = Math.round((station.refuelAmount / effectiveKW) * 60);
+            chargeTimeLine = `<p class="small text-muted">Tiempo est.: ~${minutes} min</p>`;
+        }
         const card = document.createElement('div');
         card.className = 'card card-body mb-2 bg-body-tertiary';
         card.innerHTML = `
@@ -1395,8 +1662,9 @@ function displayResults(results, origin, destination) {
                     <p class="small text-muted">Aprox. en el km ${Math.round(station.distanceFromStart)}</p>
                 </div>
                 <div class="text-end ms-2 flex-shrink-0">
-                    <p class="h5 fw-bold text-body-emphasis">${station.prices[form.elements['fuel-type'].value].toFixed(3)} €/L</p>
-                    <p class="small text-muted">Repostar: ${station.refuelAmount.toFixed(1)} L</p>
+                    <p class="h5 fw-bold text-body-emphasis">${formatPrice(station.prices[params.fuelType], params)}</p>
+                    <p class="small text-muted">${isEV ? 'Cargar' : 'Repostar'}: ${station.refuelAmount.toFixed(1)} ${amountUnit(params)}</p>
+                    ${chargeTimeLine}
                     <p class="small fw-semibold text-success">Coste: ${station.refuelCost.toFixed(2)}€</p>
                 </div>
             </div>
@@ -1408,7 +1676,7 @@ function displayResults(results, origin, destination) {
         const icon = L.divIcon({ html: markerHtml, className: '', iconSize: [32, 32], iconAnchor: [16, 16] });
 
         L.marker([station.lat, station.lon], { icon, stationId: station.id })
-            .bindPopup(`<b>Parada ${index + 1}: ${station.name}</b><br>${station.address}<br>Precio: ${station.prices[form.elements['fuel-type'].value].toFixed(3)} €/L`)
+            .bindPopup(`<b>Parada ${index + 1}: ${station.name}</b><br>${station.address}<br>Precio: ${formatPrice(station.prices[params.fuelType], params)}`)
             .addTo(stationMarkers);
     });
 
@@ -1432,6 +1700,149 @@ function displayResults(results, origin, destination) {
             hideSpinner();
         }, 100);
     });
+}
 
+// --- Carga lenta cerca del destino (solo eléctricos) ---
+// Añade a los resultados una sección con cargadores lentos (≤ 22 kW) cercanos
+// al destino: útiles para dejar el coche cargando al llegar.
+async function appendDestinationChargers(destCoords) {
+    const chargers = await fetchChargers();
+    if (!chargers.length || !destCoords) return;
 
+    const destPoint = turf.point([destCoords.lon, destCoords.lat]);
+    const nearby = chargers
+        .filter(c => c.kw > 0 && c.kw <= 22)
+        .map(c => ({
+            ...c,
+            distKm: turf.distance(destPoint, turf.point([c.lon, c.lat]), { units: 'kilometers' })
+        }))
+        .filter(c => c.distKm <= 5)
+        .sort((a, b) => a.distKm - b.distKm)
+        .slice(0, 5);
+
+    if (nearby.length === 0) return;
+
+    const section = document.createElement('div');
+    section.className = 'mt-3';
+    section.innerHTML = `<h4 class="h6 fw-bold text-body-emphasis">🔌 Carga lenta cerca del destino</h4>
+        <p class="form-text mt-0 mb-2">Para dejar el coche cargando al llegar.</p>`;
+
+    nearby.forEach(c => {
+        const gmaps = `https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lon}`;
+        const card = document.createElement('div');
+        card.className = 'card card-body mb-2 bg-body-tertiary py-2';
+        card.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="flex-grow-1">
+                    <p class="fw-bold station-name mb-0">${c.name}</p>
+                    <p class="small text-body-secondary mb-0">${c.kw} kW ${c.dc ? 'DC' : 'AC'}${c.op ? ` · ${c.op}` : ''} · a ${c.distKm.toFixed(1)} km del destino</p>
+                    ${c.precioTexto ? `<p class="small text-muted mb-0">${c.precioTexto}</p>` : ''}
+                </div>
+                <a href="${gmaps}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary ms-2" title="Cómo llegar"><i class="bi bi-geo-alt" aria-hidden="true"></i></a>
+            </div>
+        `;
+        section.appendChild(card);
+    });
+
+    resultsDiv.appendChild(section);
+}
+
+// --- Búsqueda alrededor de la ubicación actual ---
+function handleNearbySearch() {
+    if (!navigator.geolocation) {
+        alert('La geolocalización no está soportada en tu navegador.');
+        return;
+    }
+
+    const nearbyBtn = document.getElementById('nearby-btn');
+    const originalContent = nearbyBtn.innerHTML;
+    nearbyBtn.disabled = true;
+    nearbyBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Localizando...';
+
+    navigator.geolocation.getCurrentPosition(async (position) => {
+        try {
+            showSpinner();
+            const { latitude, longitude } = position.coords;
+            const params = getEffectiveParams();
+            const dataset = await getActiveStations(params);
+            // Radio de búsqueda alrededor de la posición: el configurado, mínimo 5 km
+            const radiusKm = Math.max(params.searchRadius, 5);
+            const here = turf.point([longitude, latitude]);
+
+            const nearby = dataset
+                .filter(s => params.mode === 'ev' || s.prices[params.fuelType])
+                .map(s => ({
+                    ...s,
+                    distKm: turf.distance(here, turf.point([s.lon, s.lat]), { units: 'kilometers' })
+                }))
+                .filter(s => s.distKm <= radiusKm)
+                .sort((a, b) => a.prices[params.fuelType] - b.prices[params.fuelType] || a.distKm - b.distKm)
+                .slice(0, 15);
+
+            if (nearby.length === 0) {
+                showMessage('error', `No se encontraron ${params.mode === 'ev' ? 'puntos de carga' : 'gasolineras'} en un radio de ${radiusKm} km. Prueba a aumentar la distancia de búsqueda o bajar los filtros.`);
+                return;
+            }
+
+            // Pintar resultados
+            form.classList.add('d-none');
+            messageContainer.classList.add('d-none');
+            resultsContainer.classList.remove('d-none');
+            resultsDiv.innerHTML = '';
+
+            const header = document.createElement('div');
+            header.className = 'mb-3 d-flex justify-content-between align-items-center';
+            header.innerHTML = `<h3 class="h5 fw-bold text-body-emphasis mb-0">${params.mode === 'ev' ? 'Cargadores' : 'Gasolineras'} cerca de ti</h3>
+                <button id="nearby-back-btn" class="btn btn-danger d-flex align-items-center gap-2" aria-label="Volver"><i class="bi bi-arrow-return-left" aria-hidden="true"></i></button>`;
+            resultsDiv.appendChild(header);
+            document.getElementById('nearby-back-btn')?.addEventListener('click', resetUI);
+
+            // Mapa: posición del usuario + resultados numerados
+            stationMarkers.clearLayers();
+            if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+            const hereIcon = L.divIcon({ html: '<div style="background:#0d6efd;border:3px solid white;border-radius:50%;width:1.2rem;height:1.2rem;box-shadow:0 2px 5px rgba(0,0,0,.4);"></div>', className: '', iconSize: [20, 20], iconAnchor: [10, 10] });
+            L.marker([latitude, longitude], { icon: hereIcon }).bindPopup('Tu ubicación').addTo(stationMarkers);
+
+            nearby.forEach((s, i) => {
+                const gmaps = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lon}`;
+                const card = document.createElement('div');
+                card.className = 'card card-body mb-2 bg-body-tertiary py-2';
+                card.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="flex-grow-1">
+                            <p class="fw-bold station-name mb-0">${i + 1}. ${s.name}</p>
+                            <p class="small text-body-secondary mb-0">${s.horario || ''}</p>
+                            <p class="small text-muted mb-0">${s.address} · a ${s.distKm.toFixed(1)} km</p>
+                        </div>
+                        <div class="text-end ms-2 flex-shrink-0">
+                            <p class="h6 fw-bold text-body-emphasis mb-1">${formatPrice(s.prices[params.fuelType], params)}</p>
+                            <a href="${gmaps}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary" title="Cómo llegar"><i class="bi bi-geo-alt" aria-hidden="true"></i> Ir</a>
+                        </div>
+                    </div>
+                `;
+                resultsDiv.appendChild(card);
+
+                const markerHtml = `<div style="background-color: #4138c2; color: white; border-radius: 50%; width: 1.8rem; height: 1.8rem; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3); font-size: 0.9rem;">${i + 1}</div>`;
+                const icon = L.divIcon({ html: markerHtml, className: '', iconSize: [28, 28], iconAnchor: [14, 14] });
+                L.marker([s.lat, s.lon], { icon })
+                    .bindPopup(`<b>${s.name}</b><br>${s.address}<br>${formatPrice(s.prices[params.fuelType], params)} · a ${s.distKm.toFixed(1)} km`)
+                    .addTo(stationMarkers);
+            });
+
+            map.invalidateSize();
+            map.setView([latitude, longitude], 12);
+        } catch (error) {
+            console.error('Nearby search error:', error);
+            showMessage('error', error.message);
+        } finally {
+            hideSpinner();
+            nearbyBtn.disabled = false;
+            nearbyBtn.innerHTML = originalContent;
+        }
+    }, (error) => {
+        console.error('Error de geolocalización:', error);
+        alert('No se pudo obtener tu ubicación. Comprueba los permisos de ubicación del navegador.');
+        nearbyBtn.disabled = false;
+        nearbyBtn.innerHTML = originalContent;
+    }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 });
 }
