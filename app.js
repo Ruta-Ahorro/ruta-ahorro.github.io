@@ -1675,8 +1675,8 @@ function displayResults(results, origin, destination) {
         summary.innerHTML = `
             <div class="d-flex justify-content-between"><span>Distancia</span><span class="fw-bold">${Math.round(dist)} km</span></div>
             <div class="d-flex justify-content-between"><span>${isEV ? 'Energía necesaria' : 'Combustible necesario'}</span><span class="fw-bold">${needed.toFixed(1)} ${amountUnit(params)}</span></div>
-            ${avgPrice > 0 ? `<div class="d-flex justify-content-between"><span>Coste estimado de lo que ya llevas</span><span class="fw-bold">${(needed * avgPrice).toFixed(2)} €</span></div>
-            <p class="form-text mt-1 mb-0">Estimado a precio medio actual (${formatPrice(avgPrice, params)}).</p>` : ''}
+            ${avgPrice > 0 ? `<div class="d-flex justify-content-between"><span>Coste estimado del viaje</span><span class="fw-bold">${(needed * avgPrice).toFixed(2)} €</span></div>
+            <p class="form-text mt-1 mb-0">Se consume lo que ya llevabas, valorado a precio medio actual (${formatPrice(avgPrice, params)}).</p>` : ''}
         `;
         resultsDiv.appendChild(summary);
 
@@ -1694,15 +1694,32 @@ function displayResults(results, origin, destination) {
     title.textContent = isEV ? "Plan de cargas sugeridas" : "Plan de paradas sugeridas";
     resultsDiv.appendChild(title);
 
-    // Resumen del viaje
+    // Resumen del viaje.
+    // "Coste de los repostajes" = lo que pagas en ruta (exacto).
+    // "Coste estimado del viaje" = el combustible que consumes, valorado como
+    // mezcla de lo comprado (a su precio real) y lo que ya llevabas en el
+    // depósito (estimado a precio medio actual, porque no sabemos qué pagaste).
     const totalAmount = stops.reduce((total, stop) => total + stop.refuelAmount, 0);
+    const dist = currentRouteData?.routeDistance || 0;
+    const consumed = dist / 100 * params.consumption;
+    const initialAmount = params.tankCapacity * params.currentFuelPercent / 100;
+    const dataset = currentRouteData?.stations || [];
+    const priced = dataset.map(s => s.prices[params.fuelType]).filter(p => p > 0);
+    const avgPrice = priced.length ? priced.reduce((a, b) => a + b, 0) / priced.length : 0;
+    const blendedPrice = (totalAmount + initialAmount) > 0 && avgPrice > 0
+        ? (results.optimalCost + initialAmount * avgPrice) / (totalAmount + initialAmount)
+        : 0;
+    const tripCost = consumed * blendedPrice;
+
     const summary = document.createElement('div');
     summary.className = 'p-2 bg-body-tertiary border rounded-3 mb-2 small';
     summary.innerHTML = `
-        <div class="d-flex justify-content-between"><span>Distancia</span><span class="fw-bold">${Math.round(currentRouteData?.routeDistance || 0)} km</span></div>
+        <div class="d-flex justify-content-between"><span>Distancia</span><span class="fw-bold">${Math.round(dist)} km</span></div>
         <div class="d-flex justify-content-between"><span>Paradas</span><span class="fw-bold">${stops.length}</span></div>
         <div class="d-flex justify-content-between"><span>${isEV ? 'Energía a cargar' : 'Combustible a repostar'}</span><span class="fw-bold">${totalAmount.toFixed(1)} ${amountUnit(params)}</span></div>
-        <div class="d-flex justify-content-between"><span>Coste total</span><span class="fw-bold">${results.optimalCost.toFixed(2)} €</span></div>
+        <div class="d-flex justify-content-between"><span>Coste de ${isEV ? 'las cargas' : 'los repostajes'}</span><span class="fw-bold">${results.optimalCost.toFixed(2)} €</span></div>
+        ${blendedPrice > 0 ? `<div class="d-flex justify-content-between"><span>Coste estimado del viaje</span><span class="fw-bold">${tripCost.toFixed(2)} €</span></div>
+        <p class="form-text mt-1 mb-0">Consumo del viaje (${consumed.toFixed(1)} ${amountUnit(params)}); lo que ya llevabas se valora a precio medio actual (${formatPrice(avgPrice, params)}).</p>` : ''}
     `;
     resultsDiv.appendChild(summary);
 
