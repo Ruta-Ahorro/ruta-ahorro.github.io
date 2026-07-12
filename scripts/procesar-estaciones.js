@@ -15,6 +15,28 @@ let text = fs.readFileSync(rawPath, 'utf8');
 if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // quitar BOM si existe
 const raw = JSON.parse(text);
 
+// "dd/mm/aaaa hh:mm:ss" → Date
+function parseFecha(f) {
+    const m = String(f || '').match(/(\d{2})\/(\d{2})\/(\d{4})[ T](\d{1,2}):(\d{2}):?(\d{2})?/);
+    if (!m) return null;
+    return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5], +(m[6] || 0));
+}
+
+// Protección contra respuestas obsoletas: el API del Ministerio a veces sirve
+// versiones cacheadas antiguas (llegó a devolver datos sin "Precio Adblue"
+// horas después de haberlo incluido). No sobrescribir con datos más viejos.
+if (fs.existsSync(outPath)) {
+    try {
+        const prev = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        const prevDate = parseFecha(prev.fecha);
+        const newDate = parseFecha(raw.Fecha);
+        if (prevDate && newDate && newDate <= prevDate) {
+            console.log(`El API devolvió datos de ${raw.Fecha}, no más recientes que los existentes (${prev.fecha}); se conservan los actuales.`);
+            process.exit(0);
+        }
+    } catch (e) { /* fichero previo ilegible: continuar y sobrescribir */ }
+}
+
 const PRICE_FIELDS = {
     ADBLUE: 'Precio Adblue',
     GA: 'Precio Gasoleo A',

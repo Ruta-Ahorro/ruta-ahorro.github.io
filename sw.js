@@ -19,6 +19,7 @@ const urlsToCache = [
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
     'https://unpkg.com/@turf/turf@6/turf.min.js',
+    'https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js',
     'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap'
 ];
 

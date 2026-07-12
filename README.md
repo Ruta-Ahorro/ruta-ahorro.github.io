@@ -25,7 +25,7 @@ las paradas de repostaje para ahorrar dinero en cada viaje.
 
 ### Modo eléctrico
 
-- Configuras batería (kWh), consumo (kWh/100 km) y la potencia máxima de carga de tu coche.
+- Configuras batería (kWh) y consumo (kWh/100 km).
 - Puedes filtrar los cargadores por potencia mínima (22/50/100/150 kW).
 - Se usa el precio publicado del cargador cuando existe; si no, tu tarifa por defecto
   (ahí puedes reflejar tu suscripción). Los cargadores gratuitos aparecen como "Gratis".

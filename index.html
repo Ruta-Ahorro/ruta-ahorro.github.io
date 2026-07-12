@@ -50,6 +50,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous" defer></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script>
     <script src='https://unpkg.com/@turf/turf@6/turf.min.js' defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" defer></script>
 
     <!-- LeafletJS for Map (synchronous) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
@@ -220,6 +221,31 @@
             background-color: var(--bs-primary);
             border-color: var(--bs-primary);
         }
+
+        /* Puntos de ruta arrastrables */
+        .drag-handle {
+            cursor: grab;
+            touch-action: none; /* necesario para arrastrar en pantallas táctiles */
+        }
+        .route-point.sortable-ghost {
+            opacity: 0.4;
+        }
+        .route-point.sortable-chosen .input-group {
+            box-shadow: 0 0 0 .2rem rgba(var(--bs-primary-rgb), .25);
+            border-radius: var(--bs-border-radius);
+        }
+
+        /* Enlaces y botones-enlace legibles en modo oscuro */
+        html[data-bs-theme="dark"] {
+            --bs-link-color: #a5b4fc;
+            --bs-link-hover-color: #c7d2fe;
+        }
+        html[data-bs-theme="dark"] .btn-link {
+            color: #a5b4fc;
+        }
+        html[data-bs-theme="dark"] .btn-link:hover {
+            color: #c7d2fe;
+        }
         
         .selection-badge {
             position: absolute;
@@ -341,30 +367,40 @@
                     <input type="radio" class="btn-check" name="vehicle-mode" id="mode-ev" value="ev">
                     <label class="btn btn-outline-primary" for="mode-ev">⚡ Eléctrico</label>
                 </div>
-                <div class="mb-2 position-relative">
-                    <div class="input-group">
-                        <input type="text" id="origin" name="origin" class="form-control" placeholder="Origen" aria-label="Origen" autocomplete="off" required>
-                        <button type="button" id="locate-btn" class="btn btn-outline-secondary" title="Usar mi ubicación actual" aria-label="Usar mi ubicación actual">
-                            <i class="bi bi-geo-alt-fill" aria-hidden="true"></i>
-                        </button>
+                <!-- Puntos de la ruta: arrastra el asa ⠿ para reordenarlos.
+                     El primero es el origen y el último el destino. -->
+                <div id="route-points">
+                    <div class="mb-2 position-relative route-point">
+                        <div class="input-group">
+                            <span class="input-group-text drag-handle" title="Arrastrar para reordenar"><i class="bi bi-grip-vertical" aria-hidden="true"></i></span>
+                            <input type="text" id="origin" name="origin" class="form-control route-input" placeholder="Origen" aria-label="Origen" autocomplete="off">
+                            <button type="button" id="locate-btn" class="btn btn-outline-secondary" title="Usar mi ubicación actual" aria-label="Usar mi ubicación actual">
+                                <i class="bi bi-geo-alt-fill" aria-hidden="true"></i>
+                            </button>
+                        </div>
+                        <div id="origin-suggestions" class="position-absolute z-3 w-100 bg-body border border-secondary-subtle rounded-bottom mt-1 d-none shadow-lg list-group"></div>
+                        <!-- Botón para solicitar permisos explícitamente -->
+                        <div id="permission-helper" class="d-none mt-1">
+                            <button type="button" id="request-permission-btn" class="btn btn-sm btn-warning">
+                                <i class="bi bi-shield-check"></i> Solicitar permisos de ubicación
+                            </button>
+                            <small class="text-muted d-block mt-1">Si el GPS no funciona, usa este botón primero</small>
+                        </div>
                     </div>
-                    <div id="origin-suggestions" class="position-absolute z-3 w-100 bg-body border border-secondary-subtle rounded-bottom mt-1 d-none shadow-lg list-group"></div>
-                    <!-- Botón para solicitar permisos explícitamente -->
-                    <div id="permission-helper" class="d-none mt-1">
-                        <button type="button" id="request-permission-btn" class="btn btn-sm btn-warning">
-                            <i class="bi bi-shield-check"></i> Solicitar permisos de ubicación
-                        </button>
-                        <small class="text-muted d-block mt-1">Si el GPS no funciona, usa este botón primero</small>
+                    <!-- Las paradas se insertan aquí, antes del destino -->
+                    <div class="mb-2 position-relative route-point" id="destination-point">
+                        <div class="input-group">
+                            <span class="input-group-text drag-handle" title="Arrastrar para reordenar"><i class="bi bi-grip-vertical" aria-hidden="true"></i></span>
+                            <input type="text" id="destination" name="destination" class="form-control route-input" placeholder="Destino" aria-label="Destino" autocomplete="off">
+                            <button type="button" id="invert-route-btn" class="btn btn-outline-secondary" title="Invertir ruta (origen ⇄ destino y paradas)" aria-label="Invertir ruta">
+                                <i class="bi bi-arrow-down-up" aria-hidden="true"></i>
+                            </button>
+                        </div>
+                        <div id="destination-suggestions" class="position-absolute z-3 w-100 bg-body border border-secondary-subtle rounded-bottom mt-1 d-none shadow-lg list-group"></div>
                     </div>
                 </div>
-                <div class="mb-2 position-relative">
-                    <input type="text" id="destination" name="destination" class="form-control" placeholder="Destino" aria-label="Destino" autocomplete="off" required>
-                    <div id="destination-suggestions" class="position-absolute z-3 w-100 bg-body border border-secondary-subtle rounded-bottom mt-1 d-none shadow-lg list-group"></div>
-                </div>
-                <!-- Paradas intermedias (waypoints) -->
-                <div id="waypoints-container"></div>
                 <button type="button" id="add-waypoint-btn" class="btn btn-link btn-sm p-0 mb-2">
-                    <i class="bi bi-plus-circle" aria-hidden="true"></i> Añadir parada intermedia
+                    <i class="bi bi-plus-circle" aria-hidden="true"></i> Añadir parada
                 </button>
                 <!-- Campos para vehículos de combustión -->
                 <div id="gas-fields" class="row g-3 mb-2">
@@ -399,25 +435,18 @@
                 <!-- Campos para vehículos eléctricos -->
                 <div id="ev-fields" class="d-none">
                     <div class="row g-3 mb-2">
-                        <div class="col-4">
+                        <div class="col-6">
                             <label for="ev-battery" class="form-label">Batería</label>
                             <div class="input-group">
                                 <input type="number" id="ev-battery" name="ev-battery" value="60" class="form-control">
                                 <span class="input-group-text mi-parrafo pl-1">kWh</span>
                             </div>
                         </div>
-                        <div class="col-4">
+                        <div class="col-6">
                             <label for="ev-consumption" class="form-label">Consumo</label>
                             <div class="input-group">
                                 <input type="number" id="ev-consumption" name="ev-consumption" value="16" step="0.1" class="form-control" title="Consumo medio en kWh/100km">
                                 <span class="input-group-text mi-parrafo pl-1">kWh/100</span>
-                            </div>
-                        </div>
-                        <div class="col-4">
-                            <label for="vehicle-max-power" class="form-label" title="Potencia máxima de carga que admite tu coche">Carga máx.</label>
-                            <div class="input-group">
-                                <input type="number" id="vehicle-max-power" name="vehicle-max-power" value="100" class="form-control">
-                                <span class="input-group-text mi-parrafo pl-1">kW</span>
                             </div>
                         </div>
                     </div>
@@ -450,9 +479,6 @@
             <div id="results" class="space-y-3">
                 <!-- Results will be injected here -->
             </div>
-            <button type="button" id="new-route-btn" class="btn btn-secondary w-100 fw-bold py-2 mt-2">
-                Nueva Ruta
-            </button>
         </div>
 
         <!-- Loading/Message Section -->
