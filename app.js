@@ -30,7 +30,6 @@ const originSuggestions = document.getElementById('origin-suggestions');
 const destinationSuggestions = document.getElementById('destination-suggestions');
 //const summaryContainer = document.getElementById('summary-container');
 //const summaryContent = document.getElementById('summary-content');
-const newRouteBtn = document.getElementById('new-route-btn');
 // Mover manualSearchBtn dentro de DOMContentLoaded
 
 // --- App State ---
@@ -99,7 +98,7 @@ const SETTINGS_KEY = 'rutaAhorroSettings';
 const SETTING_IDS = [
     'fuel-type', 'tank-capacity', 'consumption', 'current-fuel', 'final-fuel',
     'search-radius', 'include-restricted', 'adblue-filter',
-    'ev-battery', 'ev-consumption', 'vehicle-max-power', 'min-charge-power',
+    'ev-battery', 'ev-consumption', 'min-charge-power',
     'ev-tariff', 'slow-charge-dest'
 ];
 
@@ -227,32 +226,71 @@ function updateShareUrl(origin, destination) {
     history.replaceState(null, '', `${location.pathname}?${params}`);
 }
 
-// --- Paradas intermedias (waypoints) ---
+// --- Puntos de la ruta (origen, paradas y destino, reordenables) ---
+
+// Todos los puntos de la ruta en el orden visual actual (arrastrable):
+// el primero actúa como origen y el último como destino.
+function getOrderedRouteInputs() {
+    return [...document.querySelectorAll('#route-points .route-input')];
+}
+
+// Textos de la ruta según el orden visual actual
+function getRouteTexts() {
+    const values = getOrderedRouteInputs().map(el => el.value.trim());
+    return {
+        origin: values[0] || '',
+        destination: values[values.length - 1] || '',
+        waypoints: values.slice(1, -1).filter(Boolean)
+    };
+}
+
+// Invierte la ruta completa: origen ⇄ destino y paradas en orden inverso
+function invertRoute() {
+    const inputs = getOrderedRouteInputs();
+    const values = inputs.map(el => el.value).reverse();
+    inputs.forEach((el, i) => { el.value = values[i]; });
+}
+
+// El primer punto de la lista siempre se presenta como origen y el último
+// como destino, independientemente de cómo se hayan arrastrado las filas.
+function updateRoutePointLabels() {
+    const rows = [...document.querySelectorAll('#route-points .route-point')];
+    rows.forEach((row, i) => {
+        const input = row.querySelector('.route-input');
+        const label = i === 0 ? 'Origen' : (i === rows.length - 1 ? 'Destino' : 'Parada');
+        input.placeholder = label;
+        input.setAttribute('aria-label', label);
+    });
+}
+
 function addWaypointInput(value = '') {
-    const container = document.getElementById('waypoints-container');
-    const index = container.children.length;
+    const container = document.getElementById('route-points');
+    const destinationPoint = document.getElementById('destination-point');
     const wrapper = document.createElement('div');
-    wrapper.className = 'mb-2 position-relative waypoint-wrapper';
+    wrapper.className = 'mb-2 position-relative route-point waypoint-wrapper';
     wrapper.innerHTML = `
         <div class="input-group">
-            <span class="input-group-text"><i class="bi bi-signpost" aria-hidden="true"></i></span>
-            <input type="text" class="form-control waypoint-input" placeholder="Parada intermedia" aria-label="Parada intermedia" autocomplete="off">
+            <span class="input-group-text drag-handle" title="Arrastrar para reordenar"><i class="bi bi-grip-vertical" aria-hidden="true"></i></span>
+            <input type="text" class="form-control route-input waypoint-input" placeholder="Parada" aria-label="Parada" autocomplete="off">
             <button type="button" class="btn btn-outline-danger waypoint-remove" aria-label="Quitar parada">&times;</button>
         </div>
         <div class="position-absolute z-3 w-100 bg-body border border-secondary-subtle rounded-bottom mt-1 d-none shadow-lg list-group waypoint-suggestions"></div>
     `;
     const input = wrapper.querySelector('.waypoint-input');
     input.value = value;
-    wrapper.querySelector('.waypoint-remove').addEventListener('click', () => wrapper.remove());
-    container.appendChild(wrapper);
+    wrapper.querySelector('.waypoint-remove').addEventListener('click', () => {
+        wrapper.remove();
+        updateRoutePointLabels();
+    });
+    // Insertar antes del destino (que ocupa la última posición por defecto)
+    container.insertBefore(wrapper, destinationPoint);
     setupAutocomplete(input, wrapper.querySelector('.waypoint-suggestions'));
+    updateRoutePointLabels();
     return input;
 }
 
 function getWaypointValues() {
-    return [...document.querySelectorAll('.waypoint-input')]
-        .map(el => el.value.trim())
-        .filter(Boolean);
+    return getRouteTexts().waypoints;
 }
 
 // --- Initialization ---
@@ -291,7 +329,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Paradas intermedias y descuentos
     document.getElementById('add-waypoint-btn').addEventListener('click', () => addWaypointInput().focus());
+    document.getElementById('invert-route-btn').addEventListener('click', invertRoute);
     document.getElementById('add-discount-btn').addEventListener('click', () => addDiscountRow());
+
+    // Reordenar los puntos de la ruta arrastrando el asa (también en táctil).
+    // Tras cada arrastre, el primer punto pasa a etiquetarse como origen y el
+    // último como destino.
+    if (window.Sortable) {
+        new Sortable(document.getElementById('route-points'), {
+            handle: '.drag-handle',
+            animation: 150,
+            onEnd: updateRoutePointLabels
+        });
+    }
 
     // Búsqueda alrededor de la ubicación actual
     document.getElementById('nearby-btn').addEventListener('click', handleNearbySearch);
@@ -369,8 +419,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    newRouteBtn.addEventListener('click', resetUI);
-    
     // Event listener para búsqueda manual desde la pantalla principal
     if (manualSearchBtn) {
         manualSearchBtn.addEventListener('click', function(e) {
@@ -408,18 +456,17 @@ function resetUI() {
 }
 
 async function handleManualSearch() {
-    const originText = originInput.value.trim();
-    const destinationText = destinationInput.value.trim();
+    // El orden visual manda: primer punto = origen, último = destino
+    const { origin: originText, destination: destinationText, waypoints: waypointTexts } = getRouteTexts();
 
     if (!originText || !destinationText) {
         showMessage('error', 'Por favor, introduce tanto el origen como el destino antes de buscar paradas manuales.');
         return;
     }
-    
+
     showSpinner();
 
     try {
-        const waypointTexts = getWaypointValues();
         const params = getEffectiveParams();
         const stations = await getActiveStations(params);
 
@@ -1003,7 +1050,6 @@ function getEffectiveParams() {
             tankCapacity: parseFloat(document.getElementById('ev-battery').value) || 60,
             consumption: parseFloat(document.getElementById('ev-consumption').value) || 16,
             minChargePower: parseFloat(document.getElementById('min-charge-power').value) || 0,
-            vehicleMaxPower: parseFloat(document.getElementById('vehicle-max-power').value) || 100,
             tariff: parseFloat(document.getElementById('ev-tariff').value) || 0.45
         };
     }
@@ -1039,6 +1085,10 @@ async function getActiveStations(params) {
     let stations = allGasStations;
     if (document.getElementById('adblue-filter').checked) {
         stations = stations.filter(s => s.prices.ADBLUE != null);
+        if (stations.length === 0) {
+            // Los datos cargados no traen AdBlue (p. ej. respuesta antigua del API)
+            throw new Error('Los datos de precios cargados no incluyen información de AdBlue. Desactiva el filtro AdBlue e inténtalo de nuevo, o recarga la página más tarde.');
+        }
     }
     return applyDiscounts(stations, params.fuelType);
 }
@@ -1057,9 +1107,11 @@ async function handleFormSubmit(e) {
     resultsDiv.innerHTML = '';
 
     try {
-        const originText = originInput.value;
-        const destinationText = destinationInput.value;
-        const waypointTexts = getWaypointValues();
+        // El orden visual manda: primer punto = origen, último = destino
+        const { origin: originText, destination: destinationText, waypoints: waypointTexts } = getRouteTexts();
+        if (!originText || !destinationText) {
+            throw new Error('Por favor, rellena el origen (primer punto) y el destino (último punto).');
+        }
         const params = getEffectiveParams();
         const stations = await getActiveStations(params);
 
@@ -1568,6 +1620,28 @@ resultsDiv.appendChild(headerContainer);
     updateSelectionCounter(0);
 }
 
+// Botones de acción al pie de los resultados: paradas manuales + nueva ruta
+function appendActionButtons(origin, destination) {
+    const actions = document.createElement('div');
+    actions.className = 'mt-2 d-flex gap-2';
+    actions.innerHTML = `
+        <button id="manual-route-btn" class="btn btn-info flex-fill fw-bold">
+            <i class="bi bi-list-check me-2" aria-hidden="true"></i>Paradas Manuales
+        </button>
+        <button id="new-route-btn" class="btn btn-secondary flex-fill fw-bold">Nueva Ruta</button>
+    `;
+    resultsDiv.appendChild(actions);
+    document.getElementById('new-route-btn').addEventListener('click', resetUI);
+    document.getElementById('manual-route-btn').addEventListener('click', () => {
+        showSpinner();
+        // Usar setTimeout para permitir que el spinner se muestre antes de procesar
+        setTimeout(() => {
+            showManualRouteOptions(origin, destination);
+            hideSpinner();
+        }, 100);
+    });
+}
+
 function displayResults(results, origin, destination) {
     const stops = results.stops;
     const params = currentRouteData?.params || getEffectiveParams();
@@ -1576,11 +1650,38 @@ function displayResults(results, origin, destination) {
     if (stops.length === 0) {
         if (allGasStations.length === 0 && !isEV) {
              showMessage('error', 'Error crítico: No se pudieron cargar los datos de las gasolineras. Por favor, recarga la página.');
-        } else {
-             showMessage('info', isEV
-                ? '¡Buenas noticias! Con tu nivel de batería actual, puedes llegar a tu destino sin necesidad de cargar.'
-                : '¡Buenas noticias! Con tu nivel de combustible actual, puedes llegar a tu destino sin necesidad de repostar.');
+             return;
         }
+
+        // No hace falta parar: mostrar el aviso, el coste estimado de lo que
+        // ya llevas en el depósito/batería, y las acciones habituales.
+        messageContainer.classList.add('d-none');
+        resultsContainer.classList.remove('d-none');
+        resultsDiv.innerHTML = '';
+
+        const good = document.createElement('div');
+        good.className = 'p-2 bg-success-subtle border border-success-subtle rounded-3 mb-2';
+        good.innerHTML = `<p class="text-success-emphasis fw-semibold mb-0">¡Buenas noticias! Con tu nivel de ${isEV ? 'batería' : 'combustible'} actual puedes llegar a tu destino sin necesidad de ${isEV ? 'cargar' : 'repostar'}.</p>`;
+        resultsDiv.appendChild(good);
+
+        const dist = currentRouteData?.routeDistance || 0;
+        const needed = dist / 100 * params.consumption;
+        const dataset = currentRouteData?.stations || [];
+        const priced = dataset.map(s => s.prices[params.fuelType]).filter(p => p > 0);
+        const avgPrice = priced.length ? priced.reduce((a, b) => a + b, 0) / priced.length : 0;
+
+        const summary = document.createElement('div');
+        summary.className = 'p-2 bg-body-tertiary border rounded-3 mb-2 small';
+        summary.innerHTML = `
+            <div class="d-flex justify-content-between"><span>Distancia</span><span class="fw-bold">${Math.round(dist)} km</span></div>
+            <div class="d-flex justify-content-between"><span>${isEV ? 'Energía necesaria' : 'Combustible necesario'}</span><span class="fw-bold">${needed.toFixed(1)} ${amountUnit(params)}</span></div>
+            ${avgPrice > 0 ? `<div class="d-flex justify-content-between"><span>Coste estimado del viaje</span><span class="fw-bold">${(needed * avgPrice).toFixed(2)} €</span></div>
+            <p class="form-text mt-1 mb-0">Se consume lo que ya llevabas, valorado a precio medio actual (${formatPrice(avgPrice, params)}).</p>` : ''}
+        `;
+        resultsDiv.appendChild(summary);
+
+        appendActionButtons(origin, destination);
+        form.classList.add('d-none');
         return;
     }
 
@@ -1593,15 +1694,32 @@ function displayResults(results, origin, destination) {
     title.textContent = isEV ? "Plan de cargas sugeridas" : "Plan de paradas sugeridas";
     resultsDiv.appendChild(title);
 
-    // Resumen del viaje
+    // Resumen del viaje.
+    // "Coste de los repostajes" = lo que pagas en ruta (exacto).
+    // "Coste estimado del viaje" = el combustible que consumes, valorado como
+    // mezcla de lo comprado (a su precio real) y lo que ya llevabas en el
+    // depósito (estimado a precio medio actual, porque no sabemos qué pagaste).
     const totalAmount = stops.reduce((total, stop) => total + stop.refuelAmount, 0);
+    const dist = currentRouteData?.routeDistance || 0;
+    const consumed = dist / 100 * params.consumption;
+    const initialAmount = params.tankCapacity * params.currentFuelPercent / 100;
+    const dataset = currentRouteData?.stations || [];
+    const priced = dataset.map(s => s.prices[params.fuelType]).filter(p => p > 0);
+    const avgPrice = priced.length ? priced.reduce((a, b) => a + b, 0) / priced.length : 0;
+    const blendedPrice = (totalAmount + initialAmount) > 0 && avgPrice > 0
+        ? (results.optimalCost + initialAmount * avgPrice) / (totalAmount + initialAmount)
+        : 0;
+    const tripCost = consumed * blendedPrice;
+
     const summary = document.createElement('div');
     summary.className = 'p-2 bg-body-tertiary border rounded-3 mb-2 small';
     summary.innerHTML = `
-        <div class="d-flex justify-content-between"><span>Distancia</span><span class="fw-bold">${Math.round(currentRouteData?.routeDistance || 0)} km</span></div>
+        <div class="d-flex justify-content-between"><span>Distancia</span><span class="fw-bold">${Math.round(dist)} km</span></div>
         <div class="d-flex justify-content-between"><span>Paradas</span><span class="fw-bold">${stops.length}</span></div>
         <div class="d-flex justify-content-between"><span>${isEV ? 'Energía a cargar' : 'Combustible a repostar'}</span><span class="fw-bold">${totalAmount.toFixed(1)} ${amountUnit(params)}</span></div>
-        <div class="d-flex justify-content-between"><span>Coste total</span><span class="fw-bold">${results.optimalCost.toFixed(2)} €</span></div>
+        <div class="d-flex justify-content-between"><span>Coste de ${isEV ? 'las cargas' : 'los repostajes'}</span><span class="fw-bold">${results.optimalCost.toFixed(2)} €</span></div>
+        ${blendedPrice > 0 ? `<div class="d-flex justify-content-between"><span>Coste estimado del viaje</span><span class="fw-bold">${tripCost.toFixed(2)} €</span></div>
+        <p class="form-text mt-1 mb-0">Consumo del viaje (${consumed.toFixed(1)} ${amountUnit(params)}); lo que ya llevabas se valora a precio medio actual (${formatPrice(avgPrice, params)}).</p>` : ''}
     `;
     resultsDiv.appendChild(summary);
 
@@ -1615,12 +1733,25 @@ function displayResults(results, origin, destination) {
         const waypoints = allPoints.map(p => `${p.lat},${p.lon}`).join('|');
         const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&waypoints=${encodeURIComponent(waypoints)}`;
 
+        // Waze no soporta rutas con paradas por URL: navega a la primera parada
+        const firstStop = allPoints[0];
+        const wazeUrl = `https://waze.com/ul?ll=${firstStop.lat},${firstStop.lon}&navigate=yes`;
+
+        // Apple Maps encadena destinos con "+to:"
+        const appleChain = allPoints.map(p => `${p.lat},${p.lon}`).join('+to:');
+        const appleMapsUrl = `https://maps.apple.com/?saddr=${encodeURIComponent(origin)}&daddr=${appleChain}+to:${encodeURIComponent(destination)}&dirflg=d`;
+
         const buttonContainer = document.createElement('div');
-        buttonContainer.className = 'mt-2 d-grid';
+        buttonContainer.className = 'mt-2 d-flex gap-2';
         buttonContainer.innerHTML = `
-            <a href="${googleMapsUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-primary d-flex align-items-center justify-content-center">
-                <i class="bi bi-google me-2"></i>
-                Abrir Ruta en Google Maps
+            <a href="${googleMapsUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-primary flex-fill py-2" title="Abrir ruta en Google Maps" aria-label="Abrir ruta en Google Maps">
+                <i class="bi bi-google" aria-hidden="true"></i>
+            </a>
+            <a href="${wazeUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-primary flex-fill py-2" title="Navegar a la primera parada con Waze" aria-label="Navegar a la primera parada con Waze">
+                <img src="https://cdn.simpleicons.org/waze/white" alt="Waze" width="18" height="18">
+            </a>
+            <a href="${appleMapsUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-primary flex-fill py-2" title="Abrir ruta en Apple Maps" aria-label="Abrir ruta en Apple Maps">
+                <i class="bi bi-apple" aria-hidden="true"></i>
             </a>
         `;
         resultsDiv.appendChild(buttonContainer);
@@ -1644,13 +1775,6 @@ function displayResults(results, origin, destination) {
         }
     }
     stops.forEach((station, index) => {
-        // Tiempo de carga estimado para eléctricos (limitado por el coche y el cargador)
-        let chargeTimeLine = '';
-        if (isEV && station.kw) {
-            const effectiveKW = Math.min(station.kw, params.vehicleMaxPower || station.kw);
-            const minutes = Math.round((station.refuelAmount / effectiveKW) * 60);
-            chargeTimeLine = `<p class="small text-muted">Tiempo est.: ~${minutes} min</p>`;
-        }
         const card = document.createElement('div');
         card.className = 'card card-body mb-2 bg-body-tertiary';
         card.innerHTML = `
@@ -1664,7 +1788,6 @@ function displayResults(results, origin, destination) {
                 <div class="text-end ms-2 flex-shrink-0">
                     <p class="h5 fw-bold text-body-emphasis">${formatPrice(station.prices[params.fuelType], params)}</p>
                     <p class="small text-muted">${isEV ? 'Cargar' : 'Repostar'}: ${station.refuelAmount.toFixed(1)} ${amountUnit(params)}</p>
-                    ${chargeTimeLine}
                     <p class="small fw-semibold text-success">Coste: ${station.refuelCost.toFixed(2)}€</p>
                 </div>
             </div>
@@ -1680,26 +1803,8 @@ function displayResults(results, origin, destination) {
             .addTo(stationMarkers);
     });
 
-    // Añadir botón para ruta manual
-    const manualRouteContainer = document.createElement('div');
-    manualRouteContainer.className = 'mt-2 d-grid';
-    manualRouteContainer.innerHTML = `
-        <button id="manual-route-btn" class="btn btn-info">
-            <i class="bi bi-list-check me-2"></i>
-            Buscar Paradas Manuales
-        </button>
-    `;
-    resultsDiv.appendChild(manualRouteContainer);
-
-    // Event listener para el botón de ruta manual
-    document.getElementById('manual-route-btn').addEventListener('click', () => {
-        showSpinner();
-        // Usar setTimeout para permitir que el spinner se muestre antes de procesar
-        setTimeout(() => {
-            showManualRouteOptions(origin, destination);
-            hideSpinner();
-        }, 100);
-    });
+    // Acciones: paradas manuales + nueva ruta
+    appendActionButtons(origin, destination);
 }
 
 // --- Carga lenta cerca del destino (solo eléctricos) ---
