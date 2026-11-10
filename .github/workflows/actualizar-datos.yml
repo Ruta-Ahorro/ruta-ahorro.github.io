@@ -14,6 +14,11 @@ on:
 permissions:
   contents: write
 
+# Nunca dos actualizaciones a la vez: la segunda espera a que acabe la primera.
+concurrency:
+  group: actualizar-datos
+  cancel-in-progress: false
+
 jobs:
   actualizar:
     runs-on: ubuntu-latest

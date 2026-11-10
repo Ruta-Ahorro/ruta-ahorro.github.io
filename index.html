@@ -1,18 +1,12 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-ST5GB9GF29"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-
-  gtag('config', 'G-ST5GB9GF29');
-</script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="referrer" content="no-referrer-when-downgrade">
+    <!-- Solo se envía el dominio como referrer a terceros (CDN, teselas, etc.),
+         nunca la URL completa: las rutas compartidas llevan origen y destino
+         en la query string. -->
+    <meta name="referrer" content="strict-origin-when-cross-origin">
 
     <!-- Permisos específicos para Android -->
     <meta name="format-detection" content="telephone=no">
@@ -33,12 +27,6 @@
     <link rel="preconnect" href="https://b.tile.openstreetmap.org" crossorigin>
     <link rel="preconnect" href="https://c.tile.openstreetmap.org" crossorigin>
     
-    <link rel="preload" href="/mapa-placeholder.png" as="image" fetchpriority="high">
-    <link rel="preload" href="https://b.tile.openstreetmap.org/6/31/24.png" as="image" fetchpriority="high">
-    <link rel="preload" href="https://b.tile.openstreetmap.org/6/32/23.png" as="image" fetchpriority="high">
-    <link rel="preload" href="https://a.tile.openstreetmap.org/6/31/23.png" as="image" fetchpriority="high">
-    <link rel="preload" href="https://a.tile.openstreetmap.org/6/30/24.png" as="image" fetchpriority="high">
-    <link rel="preload" href="https://c.tile.openstreetmap.org/6/30/23.png" as="image" fetchpriority="high">
     <!-- PWA Manifest and Theme Color -->
     <meta name="theme-color" content="#4f46e5"/>
     <link rel="apple-touch-icon" href="/logo192.png">
@@ -46,11 +34,11 @@
     
     <!-- Scripts (deferred to be non-blocking) -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" integrity="sha384-XGjxtQfXaH2tnPFa9x+ruJTuLE3Aa6LhHSWRr1XeTyhezb4abCG4ccI5AkVDxqC+" crossorigin="anonymous">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous" defer></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script>
-    <script src='https://unpkg.com/@turf/turf@6/turf.min.js' defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" defer></script>
+    <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js" integrity="sha384-82q0nm29xZzIo5BMtDYnh2/NxeO6FoaK1S/0nF84w3cEsqbBfun3JdMyDVYWfVY5" crossorigin="anonymous" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" integrity="sha384-BSxuMLxX+FCbTdYec3TbXlnMGEEM2QXTFdtDaveen71o+jswm2J36+xFqp8k4VHM" crossorigin="anonymous" defer></script>
 
     <!-- LeafletJS for Map (synchronous) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
@@ -135,6 +123,7 @@
         body {
             display: flex;
             height: 100vh;
+            height: 100dvh; /* altura real en móvil, sin la barra del navegador */
             overflow: hidden;
         }
         #sidebar {
@@ -167,12 +156,22 @@
             }
             #sidebar {
                 width: 100%;
-                height: 65vh; /* Adjust height for mobile */
+                height: 62vh;
+                height: 62dvh;
                 min-width: 100%;
                 border-bottom: 1px solid var(--bs-border-color);
             }
+            /* El formulario no cabe entero en el panel: el botón principal se
+               queda pegado abajo para que esté siempre a la vista. */
+            #search-button {
+                position: sticky;
+                bottom: 0.25rem;
+                z-index: 5;
+                box-shadow: 0 0 0 0.5rem var(--bs-body-bg);
+            }
             #map-container {
-                height: 40vh;
+                height: 38vh;
+                height: 38dvh;
                 width: 100%;
                 background-color: #e0e0e0; /* Un color de fondo simple */
                 /* O mejor, una imagen estática ligera del mapa */
@@ -297,7 +296,8 @@
                     <input type="range" id="search-radius" name="search-radius" min="1" max="10" value="2" class="form-range">
                     <p class="form-text mt-1">Distancia máxima desde la ruta para buscar gasolineras.</p>
                 </div>
-                <div class="mt-2 gas-only">
+                <!-- Se muestra solo si los datos cargados traen estaciones de venta restringida -->
+                <div id="restricted-option" class="mt-2 d-none">
                     <div class="form-check">
                         <input type="checkbox" id="include-restricted" name="include-restricted" class="form-check-input">
                         <label for="include-restricted" class="form-check-label">Incluir gasolineras restringidas</label>
@@ -332,6 +332,16 @@
                         </select>
                     </div>
                     <div class="mb-2">
+                        <label for="ev-max-charge" class="form-label small fw-bold">Cargar en ruta hasta</label>
+                        <select id="ev-max-charge" name="ev-max-charge" class="form-select form-select-sm">
+                            <option value="70">70 %</option>
+                            <option value="80" selected>80 % (recomendado)</option>
+                            <option value="90">90 %</option>
+                            <option value="100">100 %</option>
+                        </select>
+                        <p class="form-text mt-1">Por encima del 80 % la carga rápida se vuelve mucho más lenta.</p>
+                    </div>
+                    <div class="mb-2">
                         <label for="ev-tariff" class="form-label small fw-bold">Tu tarifa por defecto</label>
                         <div class="input-group input-group-sm">
                             <input type="number" id="ev-tariff" name="ev-tariff" value="0.45" step="0.01" class="form-control">
@@ -359,7 +369,11 @@
                         </div> 
             </div>
 
-            <form id="route-form">
+            <!-- action="/" explícito: sin él, el destino del formulario es la URL
+                 actual (que puede llevar ?origen=...&destino=...) y la analítica
+                 lo registra en sus eventos de formulario. El envío real lo
+                 intercepta app.js. -->
+            <form id="route-form" action="/">
                 <!-- Tipo de vehículo -->
                 <div class="btn-group w-100 mb-2" role="group" aria-label="Tipo de vehículo">
                     <input type="radio" class="btn-check" name="vehicle-mode" id="mode-gas" value="gas" checked>
@@ -505,6 +519,10 @@
     </div>
 
     <script src="dark-mode.js" defer></script>
+    <script src="route-stations.js" defer></script>
     <script src="app.js" defer></script>
+    <!-- Google Analytics: solo se carga si se acepta en el aviso de consentimiento.
+         Debe ir después de app.js (ver nativeReplaceState en app.js). -->
+    <script src="analytics.js" defer></script>
 </body>
 </html>

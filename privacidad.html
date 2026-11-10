@@ -25,6 +25,8 @@
         li { margin-bottom: 0.5rem; }
         a { color: #4f46e5; }
         footer { text-align: center; margin-top: 2rem; }
+        .consent-btn { font: inherit; padding: 0.4rem 0.9rem; margin: 0 0.5rem 0.5rem 0; border: 1px solid #6b7280; border-radius: 0.375rem; background: transparent; color: inherit; cursor: pointer; }
+        .consent-btn:hover { background: rgba(107, 114, 128, .15); }
         @media (prefers-color-scheme: dark) {
             body { background: #121212; color: #e0e0e0; }
             main { background: #1e1e1e; }
@@ -37,13 +39,13 @@
     <div class="container">
         <header>
             <h1>Política de Privacidad</h1>
-            <p class="fecha">Última actualización: 4 de julio de 2026</p>
+            <p class="fecha">Última actualización: 10 de noviembre de 2026</p>
         </header>
 
         <main>
             <section>
                 <h2>1. Lo esencial</h2>
-                <p>Ruta Ahorro es una aplicación web estática que funciona íntegramente en tu navegador. <strong>No tenemos servidores propios, no usamos cookies, no incluimos herramientas de analítica ni de publicidad, y no recopilamos, almacenamos ni vendemos ningún dato personal.</strong></p>
+                <p>Ruta Ahorro es una aplicación web estática que funciona íntegramente en tu navegador. <strong>No tenemos servidores propios, no mostramos publicidad y no vendemos ningún dato personal.</strong> La única herramienta de analítica es Google Analytics, y <strong>solo se activa si la aceptas expresamente</strong>; si la rechazas o no respondes al aviso, no se carga ni se guarda ninguna cookie.</p>
             </section>
 
             <section>
@@ -51,39 +53,55 @@
                 <ul>
                     <li><strong>Configuración de la app:</strong> tu tipo de combustible, capacidad del depósito, consumo y preferencias se guardan en el almacenamiento local de tu navegador (<code>localStorage</code>) únicamente para que no tengas que volver a introducirlos. Nunca salen de tu dispositivo y puedes borrarlos limpiando los datos del sitio en tu navegador.</li>
                     <li><strong>Preferencia de tema</strong> (claro/oscuro): también se guarda localmente.</li>
+                    <li><strong>Tu elección sobre la analítica</strong> (aceptada o rechazada): se guarda localmente para no volver a preguntarte.</li>
                 </ul>
             </section>
 
+            <section id="analitica">
+                <h2>3. Analítica opcional (Google Analytics)</h2>
+                <p>Al abrir la aplicación por primera vez te preguntamos si nos dejas contar tu visita. <strong>Solo si aceptas</strong>, se carga Google Analytics 4 (Google Ireland Ltd.), que usa cookies propias (<code>_ga</code> y <code>_ga_*</code>) para elaborar estadísticas de uso: número de visitas, tipo de dispositivo y navegador, país o región aproximados y cómo se usa la página (por ejemplo, que se ha empezado a rellenar el formulario).</p>
+                <p><strong>No enviamos a Google Analytics el origen, el destino ni las paradas de tus rutas</strong>: la dirección de la página se le comunica sin parámetros, y los botones que abren Google Maps, Waze o Apple Maps no se registran. Google trata estos datos según su <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">política de privacidad</a>.</p>
+                <p>Si rechazas, o si no respondes al aviso, Google Analytics no se carga y se borran las cookies de analítica que pudieran quedar de visitas anteriores. Puedes cambiar tu elección cuando quieras:</p>
+                <p id="consent-status" class="fecha"></p>
+                <p>
+                    <button type="button" class="consent-btn" data-consent="granted">Aceptar analítica</button>
+                    <button type="button" class="consent-btn" data-consent="denied">Rechazar analítica</button>
+                </p>
+            </section>
+
             <section>
-                <h2>3. Servicios de terceros a los que se envían datos</h2>
+                <h2>4. Servicios de terceros a los que se envían datos</h2>
                 <p>Para funcionar, la aplicación hace peticiones directamente desde tu navegador a estos servicios externos. Como en cualquier petición web, estos servicios reciben tu dirección IP:</p>
                 <ul>
-                    <li><strong>Nominatim (OpenStreetMap Foundation):</strong> recibe las direcciones de origen y destino que escribes para convertirlas en coordenadas. Si usas el botón de ubicación, tus coordenadas GPS se envían a Nominatim para obtener la dirección correspondiente. <a href="https://osmfoundation.org/wiki/Privacy_Policy" target="_blank" rel="noopener">Política de privacidad de OSMF</a>.</li>
-                    <li><strong>OSRM (router.project-osrm.org):</strong> recibe las coordenadas de origen y destino para calcular la ruta.</li>
+                    <li><strong>Photon (komoot):</strong> mientras escribes un origen, un destino o una parada, el texto se envía a este buscador de lugares, basado en datos de OpenStreetMap, para sugerirte direcciones. <a href="https://photon.komoot.io/" target="_blank" rel="noopener">Más información sobre Photon</a>.</li>
+                    <li><strong>Nominatim (OpenStreetMap Foundation):</strong> al buscar la ruta, recibe las direcciones que hayas escrito sin elegirlas de las sugerencias, para convertirlas en coordenadas. Si usas el botón de ubicación del campo de origen, tus coordenadas GPS se envían a Nominatim para obtener la dirección correspondiente. Estas peticiones van directamente a Nominatim, sin intermediarios. <a href="https://osmfoundation.org/wiki/Privacy_Policy" target="_blank" rel="noopener">Política de privacidad de OSMF</a>.</li>
+                    <li><strong>OSRM (router.project-osrm.org):</strong> recibe las coordenadas de origen, destino y paradas para calcular la ruta.</li>
                     <li><strong>Teselas de OpenStreetMap:</strong> el mapa se descarga de los servidores de OpenStreetMap.</li>
-                    <li><strong>CDNs (jsDelivr, unpkg, Google Fonts):</strong> sirven las librerías y fuentes que usa la página.</li>
-                    <li><strong>Google Maps:</strong> solo si pulsas "Abrir Ruta en Google Maps", se abre Google Maps con tu ruta y paradas; a partir de ahí aplica la política de privacidad de Google.</li>
+                    <li><strong>CDNs (jsDelivr, unpkg, Google Fonts, Simple Icons):</strong> sirven las librerías, fuentes e iconos que usa la página.</li>
+                    <li><strong>Google Maps, Waze y Apple Maps:</strong> solo si pulsas el botón correspondiente, se abre esa aplicación con tu ruta y paradas (o con el punto al que quieres ir); a partir de ahí aplica la política de privacidad de cada servicio.</li>
+                    <li><strong>corsproxy.io:</strong> solo como respaldo, si el fichero de precios de este sitio no se pudiera cargar, la lista pública de precios del Ministerio se descarga a través de este intermediario. Esa petición no contiene ningún dato tuyo (ni direcciones ni ubicación).</li>
                 </ul>
-                <p>Los precios de las gasolineras provienen de los datos abiertos del <strong>Ministerio para la Transición Ecológica</strong> y se sirven como fichero estático desde este mismo sitio (GitHub Pages), sin que se envíe ningún dato tuyo al Ministerio.</p>
+                <p>Los precios de las gasolineras provienen de los datos abiertos del <strong>Ministerio para la Transición Ecológica</strong> y los puntos de carga eléctrica de <strong>OpenChargeMap</strong>. Ambos se sirven como ficheros estáticos desde este mismo sitio (GitHub Pages), sin que se envíe ningún dato tuyo al Ministerio ni a OpenChargeMap.</p>
+                <p>A estos servicios solo se les comunica como página de procedencia el dominio de la aplicación, nunca la dirección completa (que puede incluir el origen y el destino de una ruta compartida).</p>
             </section>
 
             <section>
-                <h2>4. Geolocalización</h2>
-                <p>El acceso a tu ubicación es <strong>opcional</strong> y solo se activa si pulsas el botón de ubicación y concedes permiso a tu navegador. La posición se usa una única vez para rellenar el campo de origen, no se guarda ningún historial de ubicaciones y puedes revocar el permiso en cualquier momento desde la configuración del navegador.</p>
+                <h2>5. Geolocalización</h2>
+                <p>El acceso a tu ubicación es <strong>opcional</strong> y solo se activa si pulsas el botón de ubicación del campo de origen o "Buscar cerca de mi ubicación" y concedes permiso a tu navegador. En el primer caso la posición se usa una única vez para rellenar el campo de origen; en el segundo, la búsqueda de gasolineras o cargadores cercanos se hace en tu propio dispositivo y tu posición no se envía a ningún servicio. No se guarda ningún historial de ubicaciones y puedes revocar el permiso en cualquier momento desde la configuración del navegador.</p>
             </section>
 
             <section>
-                <h2>5. Alojamiento</h2>
+                <h2>6. Alojamiento</h2>
                 <p>Este sitio se aloja en <strong>GitHub Pages</strong>. GitHub puede registrar datos técnicos de acceso (como direcciones IP) según su propia <a href="https://docs.github.com/es/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">política de privacidad</a>.</p>
             </section>
 
             <section>
-                <h2>6. Tus derechos</h2>
-                <p>Al no recopilar ni almacenar datos personales, no conservamos información sobre ti que se pueda consultar, corregir o eliminar. Los únicos datos existentes (tu configuración) están en tu propio navegador y los controlas tú.</p>
+                <h2>7. Tus derechos</h2>
+                <p>No almacenamos datos personales en servidores propios, así que no conservamos información sobre ti que se pueda consultar, corregir o eliminar. Tu configuración está en tu propio navegador y la controlas tú. Si aceptaste la analítica, puedes retirar tu consentimiento en cualquier momento desde el <a href="#analitica">apartado 3</a>; los datos estadísticos ya recogidos los trata Google como se describe allí.</p>
             </section>
 
             <section>
-                <h2>7. Contacto</h2>
+                <h2>8. Contacto</h2>
                 <p>Si tienes cualquier duda sobre esta política, escríbenos a:</p>
                 <p><strong>devgoogle.unstirred607@passinbox.com</strong></p>
             </section>
@@ -93,5 +111,34 @@
             <a href="index.html">Volver a la página principal</a>
         </footer>
     </div>
+
+    <script>
+        // Cambiar la elección sobre la analítica (misma clave que usa analytics.js)
+        (() => {
+            const KEY = 'analyticsConsent';
+            const status = document.getElementById('consent-status');
+            const read = () => { try { return localStorage.getItem(KEY); } catch (e) { return null; } };
+            const show = () => {
+                const value = read();
+                status.textContent = 'Tu elección actual: ' + (value === 'granted' ? 'analítica aceptada.'
+                    : value === 'denied' ? 'analítica rechazada.'
+                    : 'todavía no has elegido (la analítica está desactivada).');
+            };
+            const clearCookies = () => {
+                const host = location.hostname;
+                document.cookie.split(';').map(c => c.split('=')[0].trim())
+                    .filter(n => n === '_ga' || n.startsWith('_ga_'))
+                    .forEach(n => ['', host, '.' + host].forEach(d => {
+                        document.cookie = n + '=; Max-Age=0; path=/' + (d ? '; domain=' + d : '');
+                    }));
+            };
+            document.querySelectorAll('.consent-btn').forEach(btn => btn.addEventListener('click', () => {
+                try { localStorage.setItem(KEY, btn.dataset.consent); } catch (e) { /* sin almacenamiento */ }
+                if (btn.dataset.consent === 'denied') clearCookies();
+                show();
+            }));
+            show();
+        })();
+    </script>
 </body>
 </html>
