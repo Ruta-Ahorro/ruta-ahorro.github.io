@@ -55,12 +55,18 @@ const casos = [
     ['Gratis', DC50, 0, []],
     ['€0/kWh', AC22, 0, []],
     ['0', AC22, 0, []],
-    ['Free with MELIB card', AC22, 0, []],
-    ['Recarga gratuita + parking pago', AC22, 0, ['parking']],
+    ['free ', AC22, 0, []],
+    ['Gratis/Free', AC22, 0, []],
+    ['free of charge ', AC22, 0, []],
 
     // "Gratis" con condiciones o referido al parking: no es gratis
     ["app Waylet(Repsol). 90' free parking, then at 0,07€/min", AC22, null, ['min']],
     ['Free for clients', AC22, null, []],
+    ['Free with MELIB card', AC22, null, []],
+    ['free charging + parking fee', AC22, null, ['parking']],
+    ['Recarga gratuita + parking pago', AC22, null, ['parking']],
+    // Un precio por kWh manda aunque el texto mencione algo gratis
+    ['parking fee + 0,20€/kWh (0,01€/min parked without charging) First hour free', AC22, 0.20, ['parking', 'min']],
     ['Free for 30 mins for LIDL clients', AC22, null, []],
     ["First 40' free parking", DC300, null, []],
     ['0,33€/kWh DC - 0,25€/kWh AC (AC chargers free with Costco Membership)', DC120, 0.33, []],
@@ -73,7 +79,10 @@ const casos = [
     ['20€/charge', DC50, null, ['sesion']],
     ['10€', AC22, null, ['sesion']],
 
-    // Texto sin precio
+    // Valores absurdos y textos sin precio
+    ['25,00€/kWh', AC22, null, []],
+    ['0,07€/min', AC22, null, ['min']],
+    ['', AC22, null, []],
     ['16 V4 Superchargers 250kW (CCS). Max total power of the station 1,5MW', DC300, null, []],
     [null, DC50, null, []]
 ];

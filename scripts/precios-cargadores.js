@@ -19,10 +19,13 @@ const RE_PRECIO = new RegExp([
     String.raw`(\d+\.\d+)\s*€(?!\s*\/)`
 ].join('|'), 'g');
 
-const RE_GRATIS = /\b(free|gratis|gratuit[oa]s?)\b/;
-// "Gratis" con condiciones no es gratis para cualquiera: mejor estimar que
-// mandar al optimizador a un cargador que luego cobra.
-const RE_CONDICION = /\d|client|customer|guest|hu[eé]sped|member|soci[oa]|then|after|first|primer|luego|despu[eé]s|only|s[oó]lo/;
+// Textos que significan "cargar es gratis" y nada más. Frases como
+// "90' free parking, then at 0,07€/min", "Free for clients" o "Free with MELIB
+// card" NO cuentan: ahí lo gratuito es el aparcamiento, o depende de
+// condiciones, y es mejor estimar que mandar al optimizador a un cargador que
+// luego cobra.
+const ES_GRATIS = /^(free|gratis|gratuito|gratuita|free\s*\/\s*gratis|gratis\s*\/\s*free|free of charge|free of cost|free charging|carga gratuita)\s*[.!]?$/;
+// Para no avisar de "parking de pago" cuando lo gratuito es el aparcamiento
 const RE_PARKING_GRATIS = /(free|gratis|gratuito) parking|parking (is )?(free|gratis|gratuito)|aparcamiento gratuito/;
 
 function normalizar(texto) {
@@ -143,7 +146,7 @@ function parsearCoste(texto, conexion = { dc: false, kw: 0 }) {
         if (suelto) {
             const valor = parseFloat(suelto[1]);
             if (valor === 0 || (suelto[1].includes('.') && valor < 1)) precio = valor;
-        } else if (RE_GRATIS.test(t) && !RE_CONDICION.test(t) && !RE_PARKING_GRATIS.test(t)) {
+        } else if (ES_GRATIS.test(t)) {
             precio = 0;
         }
     }
