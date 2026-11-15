@@ -28,11 +28,7 @@ const searchRadiusLabel = document.getElementById('search-radius-label');
 const locateBtn = document.getElementById('locate-btn');
 const originSuggestions = document.getElementById('origin-suggestions');
 const destinationSuggestions = document.getElementById('destination-suggestions');
-//const summaryContainer = document.getElementById('summary-container');
-//const summaryContent = document.getElementById('summary-content');
-// Mover manualSearchBtn dentro de DOMContentLoaded
 
-// --- App State ---
 // --- Spinner Control ---
 function showSpinner() {
     spinnerOverlay.classList.remove('d-none');
@@ -42,33 +38,33 @@ function hideSpinner() {
     spinnerOverlay.classList.add('d-none');
 }
 
+// Escapa texto que viene de fuera (rótulos y direcciones del Ministerio, datos
+// de OpenChargeMap editables por cualquiera, mensajes de error) antes de
+// insertarlo como HTML, para que nunca pueda interpretarse como marcado.
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => HTML_ESCAPES[ch]);
+}
+
 // Detectar si es dispositivo móvil
 function isMobileDevice() {
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
            (navigator.maxTouchPoints && navigator.maxTouchPoints > 2 && /MacIntel/.test(navigator.platform));
 }
 
-// Llamadas a Nominatim: fetch directo (soporta CORS) con proxy como respaldo.
+// Llamadas a Nominatim: fetch directo (soporta CORS), sin proxies de terceros,
+// porque estas peticiones llevan las direcciones que escribe el usuario y sus
+// coordenadas GPS. Si Nominatim falla, quien llama muestra el error.
 // No se envían cabeceras como User-Agent o Referer: son cabeceras prohibidas
 // que el navegador ignora y solo provocan preflights CORS innecesarios.
-async function fetchNominatim(url, options = {}) {
-    try {
-        const response = await fetch(url, {
-            ...options,
-            headers: {
-                'Accept': 'application/json',
-                ...options.headers
-            }
-        });
-        if (response.ok) {
-            return response;
+function fetchNominatim(url, options = {}) {
+    return fetch(url, {
+        ...options,
+        headers: {
+            'Accept': 'application/json',
+            ...options.headers
         }
-        throw new Error(`Nominatim respondió con estado ${response.status}`);
-    } catch (error) {
-        console.warn('Fetch directo a Nominatim falló, usando proxy CORS:', error);
-        const proxiedUrl = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
-        return await fetch(proxiedUrl, { headers: { 'Accept': 'application/json' } });
-    }
+    });
 }
 let map;
 let routeLayer;
@@ -77,12 +73,13 @@ let allGasStations = [];
 let allChargers = [];        // Puntos de carga eléctrica (se cargan al activar el modo EV)
 let chargersLoading = null;  // Promise de carga en curso para no pedirlos dos veces
 let currentRouteData = null; // Para almacenar datos de la ruta actual
-let currentRouteStations = []; // Para almacenar gasolineras de la ruta actual
+let hasRestrictedStations = false; // ¿Los datos traen estaciones de venta restringida?
 let manualSearchBtn; // Declarar como variable global
 let autoSearchPending = false; // Ruta compartida por URL pendiente de buscar
 
 // Campos del API del Ministerio → claves cortas internas de precios
 const API_PRICE_FIELDS = {
+    ADBLUE: 'Precio Adblue',
     GA: 'Precio Gasoleo A',
     G95E5: 'Precio Gasolina 95 E5',
     G98E5: 'Precio Gasolina 98 E5',
@@ -99,7 +96,7 @@ const SETTING_IDS = [
     'fuel-type', 'tank-capacity', 'consumption', 'current-fuel', 'final-fuel',
     'search-radius', 'include-restricted', 'adblue-filter',
     'ev-battery', 'ev-consumption', 'min-charge-power',
-    'ev-tariff', 'slow-charge-dest'
+    'ev-tariff', 'ev-max-charge', 'slow-charge-dest'
 ];
 
 function saveSettings() {
@@ -171,7 +168,16 @@ function setVehicleMode(mode) {
     document.querySelectorAll('.ev-only').forEach(el => el.classList.toggle('d-none', !isEV));
     document.getElementById('current-fuel-name').textContent = isEV ? 'Batería actual' : 'Combustible actual';
     document.getElementById('final-fuel-name').textContent = isEV ? 'Batería en destino' : 'Combustible final';
+    updateRestrictedOption();
     if (isEV) fetchChargers(); // carga perezosa de los puntos de carga
+}
+
+// "Incluir gasolineras restringidas" solo tiene sentido si los datos cargados
+// traen alguna estación de venta restringida (tipo R). Si no hay ninguna, la
+// opción no haría nada y se oculta.
+function updateRestrictedOption() {
+    const option = document.getElementById('restricted-option');
+    if (option) option.classList.toggle('d-none', getVehicleMode() === 'ev' || !hasRestrictedStations);
 }
 
 // --- Descuentos por marca (suscripciones / tarjetas) ---
@@ -218,12 +224,25 @@ function applyDiscounts(stations, fuelType) {
 }
 
 // --- Rutas compartibles: ?origen=...&destino=...&paradas=a|b&modo=ev ---
+// Referencia al replaceState original, capturada antes de que se cargue
+// ningún script de terceros. La analítica (si se acepta) puede envolver
+// history.replaceState para registrar cambios de URL; usando el original, el
+// origen y el destino que se escriben en la URL nunca le llegan.
+const nativeReplaceState = history.replaceState.bind(history);
+
 function updateShareUrl(origin, destination) {
     const params = new URLSearchParams({ origen: origin, destino: destination });
     const waypoints = getWaypointValues();
     if (waypoints.length > 0) params.set('paradas', waypoints.join('|'));
     if (getVehicleMode() === 'ev') params.set('modo', 'ev');
-    history.replaceState(null, '', `${location.pathname}?${params}`);
+    // Coordenadas de los puntos elegidos en el autocompletado, para que quien
+    // abra el enlace obtenga exactamente los mismos lugares.
+    const coords = getActiveRouteInputs().map(el => {
+        const c = getInputCoords(el);
+        return c ? `${c.lat.toFixed(5)},${c.lon.toFixed(5)}` : '';
+    });
+    if (coords.some(Boolean)) params.set('coords', coords.join(';'));
+    nativeReplaceState(null, '', `${location.pathname}?${params}`);
 }
 
 // --- Puntos de la ruta (origen, paradas y destino, reordenables) ---
@@ -232,6 +251,32 @@ function updateShareUrl(origin, destination) {
 // el primero actúa como origen y el último como destino.
 function getOrderedRouteInputs() {
     return [...document.querySelectorAll('#route-points .route-input')];
+}
+
+// Puntos que cuentan para la ruta: origen, destino y las paradas con texto
+function getActiveRouteInputs() {
+    return getOrderedRouteInputs().filter((el, i, all) => i === 0 || i === all.length - 1 || el.value.trim());
+}
+
+// Coordenadas conocidas de un punto (elegido en el autocompletado, obtenido
+// del GPS o recibido en un enlace compartido). Se guardan en el propio campo
+// y solo valen mientras su texto no cambie.
+function setInputCoords(input, lat, lon) {
+    input.dataset.lat = lat;
+    input.dataset.lon = lon;
+    input.dataset.coordsFor = input.value.trim();
+}
+
+function getInputCoords(input) {
+    const { lat, lon, coordsFor } = input.dataset;
+    if (lat === undefined || lon === undefined || coordsFor !== input.value.trim()) return null;
+    return { lat: parseFloat(lat), lon: parseFloat(lon) };
+}
+
+// Coordenadas de todos los puntos de la ruta, en orden. Los que ya las traen
+// no se geocodifican; el resto se busca en Nominatim por su texto.
+function geocodeRoutePoints() {
+    return Promise.all(getActiveRouteInputs().map(el => getInputCoords(el) || geocodeAddress(el.value.trim())));
 }
 
 // Textos de la ruta según el orden visual actual
@@ -247,8 +292,16 @@ function getRouteTexts() {
 // Invierte la ruta completa: origen ⇄ destino y paradas en orden inverso
 function invertRoute() {
     const inputs = getOrderedRouteInputs();
-    const values = inputs.map(el => el.value).reverse();
-    inputs.forEach((el, i) => { el.value = values[i]; });
+    const COORD_KEYS = ['lat', 'lon', 'coordsFor'];
+    const snapshot = inputs.map(el => ({ value: el.value, data: COORD_KEYS.map(k => el.dataset[k]) })).reverse();
+    inputs.forEach((el, i) => {
+        el.value = snapshot[i].value;
+        // Las coordenadas conocidas viajan con su texto
+        COORD_KEYS.forEach((k, j) => {
+            if (snapshot[i].data[j] === undefined) delete el.dataset[k];
+            else el.dataset[k] = snapshot[i].data[j];
+        });
+    });
 }
 
 // El primer punto de la lista siempre se presenta como origen y el último
@@ -295,9 +348,6 @@ function getWaypointValues() {
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
-    // Verificación de permisos deshabilitada temporalmente - causaba problemas en Android
-    // checkInitialGeolocationPermissions();
-
     // Mostrar botón de permisos en Android automáticamente
     const isAndroid = /Android/i.test(navigator.userAgent);
     const isMobile = isMobileDevice();
@@ -346,6 +396,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // Búsqueda alrededor de la ubicación actual
     document.getElementById('nearby-btn').addEventListener('click', handleNearbySearch);
 
+    // Enlaces de navegación (Google Maps, Waze, Apple Maps, "cómo llegar").
+    // Son botones con data-open-url en vez de <a href>: la analítica registra
+    // automáticamente la URL de los enlaces salientes, y estas URL llevan el
+    // origen, el destino y coordenadas.
+    resultsDiv.addEventListener('click', (e) => {
+        const el = e.target.closest('[data-open-url]');
+        if (el) window.open(el.dataset.openUrl, '_blank', 'noopener,noreferrer');
+    });
+
     // Ruta compartida por URL: rellenar y buscar cuando carguen los datos
     const urlParams = new URLSearchParams(location.search);
     const sharedOrigin = urlParams.get('origen');
@@ -361,6 +420,13 @@ document.addEventListener('DOMContentLoaded', () => {
         originInput.value = sharedOrigin;
         destinationInput.value = sharedDestination;
         autoSearchPending = true;
+
+        // Coordenadas que acompañan al enlace (una por punto, en orden)
+        const sharedCoords = (urlParams.get('coords') || '').split(';');
+        getActiveRouteInputs().forEach((el, i) => {
+            const [lat, lon] = (sharedCoords[i] || '').split(',').map(Number);
+            if (sharedCoords[i] && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) setInputCoords(el, lat, lon);
+        });
     }
     
     initializeMap();
@@ -468,16 +534,13 @@ async function handleManualSearch() {
 
     try {
         const params = getEffectiveParams();
+        validateParams(params);
         const stations = await getActiveStations(params);
 
         // Geocodificar origen, paradas intermedias y destino
         let points;
         try {
-            points = await Promise.all([
-                geocodeAddress(originText),
-                ...waypointTexts.map(w => geocodeAddress(w)),
-                geocodeAddress(destinationText)
-            ]);
+            points = await geocodeRoutePoints();
         } catch (e) {
             throw new Error("Error de conexión con el servicio de mapas (Nominatim) al buscar direcciones.");
         }
@@ -518,9 +581,10 @@ async function handleManualSearch() {
         const routeDistance = turf.length(routeLine, { units: 'kilometers' });
 
         // Posición de las paradas intermedias sobre la ruta
+        const routeIndex = buildRouteIndex(routeLine);
         const waypointCoords = points.slice(1, -1).map(p => {
-            const nearest = turf.nearestPointOnLine(routeLine, turf.point([p.lon, p.lat]));
-            const distanceFromStart = turf.distance(turf.point(routeLine.geometry.coordinates[0]), nearest, { units: 'kilometers' });
+            // Posición a lo largo de la ruta, no en línea recta desde el origen
+            const { distanceFromStart } = locateOnRoute(routeIndex, p.lon, p.lat);
             return { lat: p.lat, lon: p.lon, distanceFromStart };
         });
 
@@ -611,17 +675,35 @@ function setupAutocomplete(inputEl, suggestionsEl) {
     });
 }
 
+// Sugerencias de lugares mientras se escribe. Se usa Photon (komoot), un
+// buscador sobre datos de OpenStreetMap pensado para autocompletado: la
+// política de uso de Nominatim prohíbe usarlo para esto.
+const PHOTON_URL = 'https://photon.komoot.io/api/';
+const SPAIN_BBOX = '-18.5,27.4,4.6,43.9'; // península, Baleares y Canarias
+
+function photonLabel(props) {
+    const street = [props.street, props.housenumber].filter(Boolean).join(' ');
+    const town = props.city || props.town || props.village || props.county;
+    return [...new Set([props.name, street, town, props.state].filter(Boolean))].join(', ');
+}
+
 async function fetchSuggestions(query, suggestionsEl, inputEl) {
     try {
-        const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=es&limit=5`;
-        
-        const response = await fetchNominatim(apiUrl);
-        if (!response.ok) {
+        const apiUrl = `${PHOTON_URL}?q=${encodeURIComponent(query)}&limit=10&bbox=${SPAIN_BBOX}`;
+        const response = await fetch(apiUrl);
+        // Si mientras tanto el texto ha cambiado, esta respuesta ya no sirve
+        if (!response.ok || inputEl.value !== query) {
             suggestionsEl.classList.add('d-none');
             return;
         }
 
-        const suggestions = await response.json();
+        const data = await response.json();
+        const seen = new Set();
+        const suggestions = (data.features || [])
+            .filter(f => f.properties && f.properties.countrycode === 'ES' && f.geometry && Array.isArray(f.geometry.coordinates))
+            .map(f => ({ label: photonLabel(f.properties), lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }))
+            .filter(place => place.label && !seen.has(place.label) && seen.add(place.label))
+            .slice(0, 5);
 
         suggestionsEl.innerHTML = '';
         if (suggestions.length === 0) {
@@ -633,10 +715,12 @@ async function fetchSuggestions(query, suggestionsEl, inputEl) {
             const suggestionItem = document.createElement('a');
             suggestionItem.href = "#";
             suggestionItem.className = 'list-group-item list-group-item-action';
-            suggestionItem.textContent = place.display_name;
+            suggestionItem.textContent = place.label;
             suggestionItem.addEventListener('click', (e) => {
                 e.preventDefault();
-                inputEl.value = place.display_name;
+                inputEl.value = place.label;
+                // La sugerencia ya trae coordenadas: no hará falta geocodificarla
+                setInputCoords(inputEl, place.lat, place.lon);
                 suggestionsEl.innerHTML = '';
                 suggestionsEl.classList.add('d-none');
             });
@@ -695,6 +779,8 @@ function handleLocateMe() {
             originInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
             console.log('No se pudo encontrar la dirección. Se usarán las coordenadas.');
         } finally {
+            // La posición exacta del GPS acompaña al texto: no se vuelve a geocodificar
+            setInputCoords(originInput, latitude, longitude);
             locateBtn.disabled = false;
             locateBtn.innerHTML = originalBtnContent;
         }
@@ -721,24 +807,6 @@ function handleLocateMe() {
         locateBtn.disabled = false;
         locateBtn.innerHTML = originalBtnContent;
     }, options);
-}
-
-// Función para verificar permisos de geolocalización
-async function checkGeolocationPermission() {
-    if (!navigator.permissions) {
-        // Si no hay API de permisos, asumir que está disponible
-        return true;
-    }
-    
-    try {
-        const permission = await navigator.permissions.query({ name: 'geolocation' });
-        console.log('Estado de permisos de geolocalización:', permission.state);
-        return permission.state === 'granted' || permission.state === 'prompt';
-    } catch (error) {
-        console.warn('No se pudo verificar permisos de geolocalización:', error);
-        // Si hay error verificando permisos, intentar de todas formas
-        return true;
-    }
 }
 
 // Función para forzar la petición de permisos en Android
@@ -775,90 +843,6 @@ function forceLocationPermissionRequest() {
     });
 }
 
-// Función para mostrar mensajes toast (si no existe)
-function showToast(message, type = 'info') {
-    // Si no hay sistema de toast, usar alert como fallback
-    if (typeof bootstrap === 'undefined' || !bootstrap.Toast) {
-        console.log(`${type.toUpperCase()}: ${message}`);
-        return;
-    }
-    
-    // Crear toast si bootstrap está disponible
-    const toastContainer = document.getElementById('toast-container') || createToastContainer();
-    const toastEl = document.createElement('div');
-    toastEl.className = `toast align-items-center text-bg-${type} border-0`;
-    toastEl.innerHTML = `
-        <div class="d-flex">
-            <div class="toast-body">${message}</div>
-            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-        </div>
-    `;
-    
-    toastContainer.appendChild(toastEl);
-    const toast = new bootstrap.Toast(toastEl);
-    toast.show();
-    
-    // Limpiar después de mostrar
-    toastEl.addEventListener('hidden.bs.toast', () => {
-        toastEl.remove();
-    });
-}
-
-function createToastContainer() {
-    const container = document.createElement('div');
-    container.id = 'toast-container';
-    container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
-    container.style.zIndex = '1055';
-    document.body.appendChild(container);
-    return container;
-}
-
-// Función para verificar permisos al cargar la página
-async function checkInitialGeolocationPermissions() {
-    if (!navigator.geolocation) {
-        return;
-    }
-
-    const isMobile = isMobileDevice();
-    const isAndroid = /Android/i.test(navigator.userAgent);
-    
-    if (isMobile && isAndroid) {
-        try {
-            const permission = await navigator.permissions.query({ name: 'geolocation' });
-            const hintElement = document.getElementById('location-permission-hint');
-            
-            if (permission.state === 'denied') {
-                console.log('Permisos de geolocalización denegados');
-                if (hintElement) {
-                    hintElement.textContent = '⚠️ Permisos de ubicación denegados. Actívalos en configuración para usar tu ubicación.';
-                    hintElement.classList.remove('d-none');
-                    hintElement.classList.add('text-warning');
-                }
-            } else if (permission.state === 'prompt') {
-                console.log('Permisos de geolocalización pendientes');
-                if (hintElement) {
-                    hintElement.textContent = '💡 Toca el botón de ubicación para permitir el acceso a tu posición.';
-                    hintElement.classList.remove('d-none');
-                    hintElement.classList.add('text-info');
-                }
-            } else if (permission.state === 'granted') {
-                console.log('Permisos de geolocalización concedidos');
-            }
-            
-            // Escuchar cambios en los permisos
-            permission.onchange = () => {
-                console.log('Cambio en permisos de geolocalización:', permission.state);
-                if (permission.state === 'granted' && hintElement) {
-                    hintElement.classList.add('d-none');
-                }
-            };
-            
-        } catch (error) {
-            console.warn('No se pudo verificar permisos de geolocalización:', error);
-        }
-    }
-}
-
 function initializeMap() {
     map = L.map('map').setView([40.416775, -3.703790], 6);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -878,6 +862,7 @@ function showMessage(type, text) {
     resultsContainer.classList.add('d-none');
     messageContainer.classList.remove('d-none');
     let content = '';
+    text = escapeHtml(text);
     if (type === 'loading') {
         content = `<div class="loader mx-auto"></div><p class="mt-2 text-muted">${text}</p>`;
     } else if (type === 'error') {
@@ -964,6 +949,8 @@ async function fetchGasStations() {
         }
 
         console.log(`Cargadas ${allGasStations.length} gasolineras.`);
+        hasRestrictedStations = allGasStations.some(s => s.tipoVenta === 'R');
+        updateRestrictedOption();
 
         // Mostrar la fecha y hora de los precios en el pie del sidebar
         const dataDateEl = document.getElementById('data-date');
@@ -972,6 +959,17 @@ async function fetchGasStations() {
             const [datePart, timePart] = String(dataDate).split(' ');
             const time = timePart ? ` · ${timePart.split(':').slice(0, 2).join(':')}h` : '';
             dataDateEl.textContent = `Precios actualizados: ${datePart}${time}`;
+
+            // Avisar si los precios son viejos (la actualización automática ha fallado)
+            const [day, month, year] = datePart.split('/').map(Number);
+            const ageDays = Math.floor((Date.now() - new Date(year, month - 1, day).getTime()) / 86400000);
+            const stale = ageDays >= 2;
+            dataDateEl.classList.toggle('text-muted', !stale);
+            dataDateEl.classList.toggle('text-danger', stale);
+            dataDateEl.classList.toggle('fw-semibold', stale);
+            if (stale) {
+                dataDateEl.textContent = `⚠️ Precios de hace ${ageDays} días (${datePart}): pueden haber cambiado`;
+            }
         }
 
         showMessage('info', 'Datos cargados. ¡Listo para buscar tu ruta!');
@@ -982,12 +980,6 @@ async function fetchGasStations() {
         if (manualSearchBtn) {
             manualSearchBtn.disabled = false;
             manualSearchBtn.classList.remove('disabled');
-        }
-
-        // Si llegó una ruta compartida por URL, lanzarla ahora
-        if (autoSearchPending) {
-            autoSearchPending = false;
-            form.requestSubmit(searchButton);
         }
 
     } catch (error) {
@@ -1002,6 +994,13 @@ async function fetchGasStations() {
         messageContent.appendChild(retryBtn);
     } finally {
         hideSpinner();
+    }
+
+    // Si llegó una ruta compartida por URL, lanzarla ahora. Va después de
+    // ocultar el spinner de carga para que la búsqueda muestre el suyo.
+    if (autoSearchPending && allGasStations.length > 0) {
+        autoSearchPending = false;
+        form.requestSubmit(searchButton);
     }
 }
 
@@ -1050,7 +1049,9 @@ function getEffectiveParams() {
             tankCapacity: parseFloat(document.getElementById('ev-battery').value) || 60,
             consumption: parseFloat(document.getElementById('ev-consumption').value) || 16,
             minChargePower: parseFloat(document.getElementById('min-charge-power').value) || 0,
-            tariff: parseFloat(document.getElementById('ev-tariff').value) || 0.45
+            tariff: parseFloat(document.getElementById('ev-tariff').value) || 0.45,
+            // En ruta no se suele cargar al 100 %: el último tramo es muy lento
+            maxFillPercent: parseFloat(document.getElementById('ev-max-charge').value) || 80
         };
     }
     return {
@@ -1059,6 +1060,29 @@ function getEffectiveParams() {
         tankCapacity: parseFloat(document.getElementById('tank-capacity').value),
         consumption: parseFloat(document.getElementById('consumption').value) || 6.5
     };
+}
+
+// Comprueba que los datos del vehículo permiten calcular un plan.
+function validateParams(params) {
+    const isEV = params.mode === 'ev';
+    if (!(params.tankCapacity > 0)) {
+        throw new Error(isEV ? 'Indica la capacidad de la batería en kWh.' : 'Indica la capacidad del depósito en litros.');
+    }
+    if (!(params.consumption > 0)) {
+        throw new Error('Indica un consumo mayor que cero.');
+    }
+    if (isEV && params.finalFuelPercent > params.maxFillPercent) {
+        throw new Error(`La batería en destino (${params.finalFuelPercent} %) no puede superar la carga máxima en ruta (${params.maxFillPercent} %). Cambia una de las dos.`);
+    }
+}
+
+// Tiempo de carga estimado, en minutos, cargando a la potencia máxima del punto
+function chargeMinutes(kwh, kw) {
+    return kw > 0 ? Math.max(1, Math.round(kwh / kw * 60)) : null;
+}
+
+function formatMinutes(minutes) {
+    return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')} min`;
 }
 
 // Dataset activo según el modo, en la forma que espera el worker.
@@ -1113,6 +1137,7 @@ async function handleFormSubmit(e) {
             throw new Error('Por favor, rellena el origen (primer punto) y el destino (último punto).');
         }
         const params = getEffectiveParams();
+        validateParams(params);
         const stations = await getActiveStations(params);
 
         if (stations.length === 0) {
@@ -1124,11 +1149,7 @@ async function handleFormSubmit(e) {
         // Geocodificar origen, paradas intermedias y destino
         let points;
         try {
-            points = await Promise.all([
-                geocodeAddress(originText),
-                ...waypointTexts.map(w => geocodeAddress(w)),
-                geocodeAddress(destinationText)
-            ]);
+            points = await geocodeRoutePoints();
         } catch (e) {
             throw new Error("Error de conexión con el servicio de mapas (Nominatim) al buscar direcciones.");
         }
@@ -1156,9 +1177,10 @@ async function handleFormSubmit(e) {
 
         // Posición de las paradas intermedias a lo largo de la ruta (para
         // ordenarlas junto a los repostajes en el enlace de Google Maps)
+        const routeIndex = buildRouteIndex(routeLine);
         const waypointCoords = points.slice(1, -1).map(p => {
-            const nearest = turf.nearestPointOnLine(routeLine, turf.point([p.lon, p.lat]));
-            const distanceFromStart = turf.distance(turf.point(routeLine.geometry.coordinates[0]), nearest, { units: 'kilometers' });
+            // Posición a lo largo de la ruta, no en línea recta desde el origen
+            const { distanceFromStart } = locateOnRoute(routeIndex, p.lon, p.lat);
             return { lat: p.lat, lon: p.lon, distanceFromStart };
         });
 
@@ -1261,55 +1283,13 @@ async function getRoute(points) {
     return (data.code === 'Ok' && data.routes.length > 0) ? data.routes[0] : null;
 }
 
-function getCheapestStationsOnRoute(routeLine, params, allGasStations, origin, destination) {
-    const { fuelType, searchRadius, includeRestricted } = params;
-    
-    // Filtrar estaciones como en el worker
-    let candidateStations = allGasStations.filter(station => {
-        if (!station.prices[fuelType]) {
-            return false;
-        }
-        let saleTypeFilter = station.tipoVenta === 'P';
-        if (includeRestricted) {
-            saleTypeFilter = station.tipoVenta === 'P' || station.tipoVenta === 'R';
-        }
-        return saleTypeFilter;
-    });
-
-    // Crear bounding box buffeado
-    const routeBbox = turf.bbox(routeLine);
-    const bufferedBboxPolygon = turf.buffer(turf.bboxPolygon(routeBbox), searchRadius, { units: 'kilometers' });
-
-    // Filtrar estaciones dentro del bounding box
-    candidateStations = candidateStations.filter(station => {
-        const point = turf.point([station.lon, station.lat]);
-        return turf.booleanPointInPolygon(point, bufferedBboxPolygon);
-    });
-
-    // Filtrado detallado (conservando la distancia a la ruta para mostrarla)
-    const originPoint = turf.point(routeLine.geometry.coordinates[0]);
-
-    const stationsOnRoute = candidateStations
-        .map(station => {
-            const point = turf.point([station.lon, station.lat]);
-            const distanceToRoute = turf.pointToLineDistance(point, routeLine, { units: 'kilometers' });
-            return { station, distanceToRoute };
-        })
-        .filter(({ distanceToRoute }) => distanceToRoute <= searchRadius)
-        .map(({ station, distanceToRoute }) => {
-            const stationPoint = turf.point([station.lon, station.lat]);
-            const nearestPointOnRoute = turf.nearestPointOnLine(routeLine, stationPoint);
-            const distanceFromStart = turf.distance(originPoint, nearestPointOnRoute, { units: 'kilometers' });
-
-            return { ...station, distanceFromStart, distanceToRoute };
-        });
-
-    const finalStations = stationsOnRoute
-        .sort((a, b) => a.prices[fuelType] - b.prices[fuelType]) // Ordenar por precio
-        .slice(0, 15) // Tomar las 15 más baratas
-        .sort((a, b) => a.distanceFromStart - b.distanceFromStart); // Ordenar por distancia desde origen
-
-    return finalStations;
+// Las 15 estaciones más baratas de la ruta, ordenadas por kilómetro.
+function getCheapestStationsOnRoute(routeLine, params, stations) {
+    const routeDistance = turf.length(routeLine, { units: 'kilometers' });
+    return findStationsOnRoute(routeLine, routeDistance, params, stations)
+        .sort((a, b) => a.prices[params.fuelType] - b.prices[params.fuelType])
+        .slice(0, 15)
+        .sort((a, b) => a.distanceFromStart - b.distanceFromStart);
 }
 
 // Función para actualizar marcadores basado en selección
@@ -1338,7 +1318,7 @@ function updateMapMarkers(stations) {
         const icon = L.divIcon({ html: markerHtml, className: '', iconSize: [28, 28], iconAnchor: [14, 14] });
 
         L.marker([station.lat, station.lon], { icon })
-            .bindPopup(`<b>Parada ${stopIndex}: ${station.name}</b><br>${station.address}<br>Precio: ${station.prices[currentRouteData.params.fuelType].toFixed(3)} ${priceUnit(currentRouteData.params)}<br>Km ${Math.round(station.distanceFromStart)} desde origen`)
+            .bindPopup(`<b>Parada ${stopIndex}: ${escapeHtml(station.name)}</b><br>${escapeHtml(station.address)}<br>Precio: ${station.prices[currentRouteData.params.fuelType].toFixed(3)} ${priceUnit(currentRouteData.params)}<br>Km ${Math.round(station.distanceFromStart)} desde origen`)
             .addTo(stationMarkers);
     });
     
@@ -1454,39 +1434,24 @@ function showManualRouteOptions(origin, destination, preCalculatedStations = nul
     // Ocultar el formulario principal
     form.classList.add('d-none');
 
-    // Título
+    // Cabecera: título + botón de volver
     const title = document.createElement('h3');
-title.className = "h5 fw-bold text-body-emphasis";
-title.textContent = "Selecciona las paradas";
+    title.className = "h5 fw-bold text-body-emphasis";
+    title.textContent = "Selecciona las paradas";
 
-const backToResultsBtn = document.createElement('button');
-backToResultsBtn.id = "back-to-results-btn";
-backToResultsBtn.className = "btn btn-danger  d-flex align-items-center gap-2";
-backToResultsBtn.innerHTML = `<i class="bi bi-arrow-return-left"></i>`;
+    const backToResultsBtn = document.createElement('button');
+    backToResultsBtn.id = "back-to-results-btn";
+    backToResultsBtn.className = "btn btn-danger d-flex align-items-center gap-2";
+    backToResultsBtn.setAttribute('aria-label', 'Volver');
+    backToResultsBtn.innerHTML = `<i class="bi bi-arrow-return-left" aria-hidden="true"></i>`;
 
-// 1. Crea un nuevo contenedor para los dos elementos
-const headerContainer = document.createElement('div');
+    const headerContainer = document.createElement('div');
+    headerContainer.className = "mb-3 d-flex justify-content-between align-items-center";
+    headerContainer.appendChild(title);
+    headerContainer.appendChild(backToResultsBtn);
+    resultsDiv.appendChild(headerContainer);
 
-// 2. Añade las clases de Bootstrap para convertirlo en un flexbox
-headerContainer.className = "mb-3 d-flex justify-content-between align-items-center";
-
-// 3. Añade el título y el botón al nuevo contenedor
-headerContainer.appendChild(title);
-headerContainer.appendChild(backToResultsBtn);
-
-// 4. Añade el contenedor completo a tu resultsDiv
-resultsDiv.appendChild(headerContainer);
-
-    // Contenedor de botones de acción
-    //const actionContainer = document.createElement('div');
-    //actionContainer.className = 'mb-3 d-flex gap-2';
-    //actionContainer.innerHTML = `
-    //    <button id="select-all-btn" class="btn btn-sm btn-outline-primary">Seleccionar Todo</button>
-    //    <button id="clear-all-btn" class="btn btn-sm btn-outline-secondary">Limpiar Todo</button>
-    //    <button id="back-to-results-btn" class="btn btn-sm btn-outline-danger">Volver</button>
-   // `;
-    //resultsDiv.appendChild(actionContainer);
-        const generateContainer = document.createElement('div');
+    const generateContainer = document.createElement('div');
     generateContainer.className = 'mt-2 d-grid';
     generateContainer.innerHTML = `
         <button id="generate-manual-route-btn" class="btn btn-primary">
@@ -1515,8 +1480,8 @@ resultsDiv.appendChild(headerContainer);
                     <input class="form-check-input station-checkbox" type="checkbox" value="${index}" id="station-${index}">
                 </div>
                 <div class="flex-grow-1">
-                    <label class="form-check-label fw-bold station-name" for="station-${index}">${station.name}</label>
-                    <p class="small text-body-secondary fw-bold mb-1">${station.horario}
+                    <label class="form-check-label fw-bold station-name" for="station-${index}">${escapeHtml(station.name)}</label>
+                    <p class="small text-body-secondary fw-bold mb-1">${escapeHtml(station.horario)}
                     <span class="small text-muted">Km ${Math.round(station.distanceFromStart)}${station.distanceToRoute != null ? ` · a ${station.distanceToRoute.toFixed(1)} km de la ruta` : ''}</span></p>
                 </div>
                 <div class="text-end ms-2">
@@ -1546,28 +1511,6 @@ resultsDiv.appendChild(headerContainer);
     });
     
     resultsDiv.appendChild(stationsContainer);
-
-    // Botón para generar ruta
-
-
-    // Event listeners
-//    document.getElementById('select-all-btn').addEventListener('click', () => {
-//        document.querySelectorAll('.station-checkbox').forEach(cb => {
-//            cb.checked = true;
-//            const card = cb.closest('.station-card');
-//            updateCardAppearance(card, true, cheapestStations);
-//        });
-//        updateMapMarkers(cheapestStations);
-//    });
-
-//    document.getElementById('clear-all-btn').addEventListener('click', () => {
-//        document.querySelectorAll('.station-checkbox').forEach(cb => {
-//            cb.checked = false;
-//            const card = cb.closest('.station-card');
-//            updateCardAppearance(card, false, cheapestStations);
-//        });
-//        updateMapMarkers(cheapestStations);
-//    });
 
     document.getElementById('back-to-results-btn').addEventListener('click', () => {
         // Volver a mostrar el formulario principal
@@ -1659,6 +1602,8 @@ function displayResults(results, origin, destination) {
         resultsContainer.classList.remove('d-none');
         resultsDiv.innerHTML = '';
 
+        if (results.relaxed) resultsDiv.appendChild(tightPlanWarning(isEV));
+
         const good = document.createElement('div');
         good.className = 'p-2 bg-success-subtle border border-success-subtle rounded-3 mb-2';
         good.innerHTML = `<p class="text-success-emphasis fw-semibold mb-0">¡Buenas noticias! Con tu nivel de ${isEV ? 'batería' : 'combustible'} actual puedes llegar a tu destino sin necesidad de ${isEV ? 'cargar' : 'repostar'}.</p>`;
@@ -1693,6 +1638,7 @@ function displayResults(results, origin, destination) {
     title.className = "h5 fw-bold text-body-emphasis mb-2";
     title.textContent = isEV ? "Plan de cargas sugeridas" : "Plan de paradas sugeridas";
     resultsDiv.appendChild(title);
+    if (results.relaxed) resultsDiv.appendChild(tightPlanWarning(isEV));
 
     // Resumen del viaje.
     // "Coste de los repostajes" = lo que pagas en ruta (exacto).
@@ -1710,6 +1656,9 @@ function displayResults(results, origin, destination) {
         ? (results.optimalCost + initialAmount * avgPrice) / (totalAmount + initialAmount)
         : 0;
     const tripCost = consumed * blendedPrice;
+    // Tiempo total de carga (solo eléctricos, si se conoce la potencia de cada punto)
+    const stopMinutes = stops.map(s => chargeMinutes(s.refuelAmount, s.kw));
+    const totalMinutes = isEV && stopMinutes.every(m => m !== null) ? stopMinutes.reduce((a, b) => a + b, 0) : null;
 
     const summary = document.createElement('div');
     summary.className = 'p-2 bg-body-tertiary border rounded-3 mb-2 small';
@@ -1718,12 +1667,19 @@ function displayResults(results, origin, destination) {
         <div class="d-flex justify-content-between"><span>Paradas</span><span class="fw-bold">${stops.length}</span></div>
         <div class="d-flex justify-content-between"><span>${isEV ? 'Energía a cargar' : 'Combustible a repostar'}</span><span class="fw-bold">${totalAmount.toFixed(1)} ${amountUnit(params)}</span></div>
         <div class="d-flex justify-content-between"><span>Coste de ${isEV ? 'las cargas' : 'los repostajes'}</span><span class="fw-bold">${results.optimalCost.toFixed(2)} €</span></div>
+        ${totalMinutes !== null ? `<div class="d-flex justify-content-between"><span>Tiempo de carga estimado</span><span class="fw-bold">≈ ${formatMinutes(totalMinutes)}</span></div>` : ''}
         ${blendedPrice > 0 ? `<div class="d-flex justify-content-between"><span>Coste estimado del viaje</span><span class="fw-bold">${tripCost.toFixed(2)} €</span></div>
         <p class="form-text mt-1 mb-0">Consumo del viaje (${consumed.toFixed(1)} ${amountUnit(params)}); lo que ya llevabas se valora a precio medio actual (${formatPrice(avgPrice, params)}).</p>` : ''}
     `;
+    if (totalMinutes !== null) {
+        const note = document.createElement('p');
+        note.className = 'form-text mt-1 mb-0';
+        note.textContent = 'Tiempos de carga calculados a la potencia máxima de cada punto; el real depende de tu coche y del nivel de batería.';
+        summary.appendChild(note);
+    }
     resultsDiv.appendChild(summary);
 
-                if (stops.length > 0) {
+    if (stops.length > 0) {
         // Enlace de Google Maps: paradas de repostaje/carga + paradas
         // intermedias del usuario, ordenadas por su posición en la ruta
         const allPoints = [
@@ -1744,15 +1700,15 @@ function displayResults(results, origin, destination) {
         const buttonContainer = document.createElement('div');
         buttonContainer.className = 'mt-2 d-flex gap-2';
         buttonContainer.innerHTML = `
-            <a href="${googleMapsUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-primary flex-fill py-2" title="Abrir ruta en Google Maps" aria-label="Abrir ruta en Google Maps">
+            <button type="button" data-open-url="${escapeHtml(googleMapsUrl)}" class="btn btn-primary flex-fill py-2" title="Abrir ruta en Google Maps" aria-label="Abrir ruta en Google Maps">
                 <i class="bi bi-google" aria-hidden="true"></i>
-            </a>
-            <a href="${wazeUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-primary flex-fill py-2" title="Navegar a la primera parada con Waze" aria-label="Navegar a la primera parada con Waze">
+            </button>
+            <button type="button" data-open-url="${escapeHtml(wazeUrl)}" class="btn btn-primary flex-fill py-2" title="Navegar a la primera parada con Waze" aria-label="Navegar a la primera parada con Waze">
                 <img src="https://cdn.simpleicons.org/waze/white" alt="Waze" width="18" height="18">
-            </a>
-            <a href="${appleMapsUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-primary flex-fill py-2" title="Abrir ruta en Apple Maps" aria-label="Abrir ruta en Apple Maps">
+            </button>
+            <button type="button" data-open-url="${escapeHtml(appleMapsUrl)}" class="btn btn-primary flex-fill py-2" title="Abrir ruta en Apple Maps" aria-label="Abrir ruta en Apple Maps">
                 <i class="bi bi-apple" aria-hidden="true"></i>
-            </a>
+            </button>
         `;
         resultsDiv.appendChild(buttonContainer);
 
@@ -1762,15 +1718,11 @@ function displayResults(results, origin, destination) {
         if (savingsVsAvg > 0 || savingsVsMax > 0) {
             const savingsContainer = document.createElement('div');
             savingsContainer.className = 'mt-2 p-2 bg-success-subtle border border-success-subtle rounded-3 mb-1';
-            savingsContainer.innerHTML = `
-                
-                <p class="text-sm text-success-emphasis">
-                    <span class="fw-bold">Ahorro: ${savingsVsAvg.toFixed(2)}€</span> comparado con la media.
-                </p>
-                <p class="text-sm text-success-emphasis mt-1">
-                     <span class="fw-bold">Ahorro: ${savingsVsMax.toFixed(2)}€</span> comparado con el máximo.
-                </p>
-            `;
+            // Solo se muestran las comparaciones en las que de verdad se ahorra
+            savingsContainer.innerHTML = [
+                savingsVsAvg > 0 ? `<p class="text-sm text-success-emphasis"><span class="fw-bold">Ahorro: ${savingsVsAvg.toFixed(2)}€</span> comparado con la media.</p>` : '',
+                savingsVsMax > 0 ? `<p class="text-sm text-success-emphasis"><span class="fw-bold">Ahorro: ${savingsVsMax.toFixed(2)}€</span> comparado con el máximo.</p>` : ''
+            ].join('');
             resultsDiv.appendChild(savingsContainer);
         }
     }
@@ -1780,14 +1732,15 @@ function displayResults(results, origin, destination) {
         card.innerHTML = `
             <div class="d-flex justify-content-between align-items-start">
                 <div class="flex-grow-1">
-                    <p class="fw-bold station-name">Parada ${index + 1}: ${station.name}</p>
-                    <p class="fw-bold small text-body-secondary">${station.horario}</p>
-                    <p class="small text-muted">${station.address}</p>
+                    <p class="fw-bold station-name">Parada ${index + 1}: ${escapeHtml(station.name)}</p>
+                    <p class="fw-bold small text-body-secondary">${escapeHtml(station.horario)}</p>
+                    <p class="small text-muted">${escapeHtml(station.address)}</p>
                     <p class="small text-muted">Aprox. en el km ${Math.round(station.distanceFromStart)}</p>
                 </div>
                 <div class="text-end ms-2 flex-shrink-0">
                     <p class="h5 fw-bold text-body-emphasis">${formatPrice(station.prices[params.fuelType], params)}</p>
                     <p class="small text-muted">${isEV ? 'Cargar' : 'Repostar'}: ${station.refuelAmount.toFixed(1)} ${amountUnit(params)}</p>
+                    ${isEV && stopMinutes[index] !== null ? `<p class="small text-muted">≈ ${formatMinutes(stopMinutes[index])}</p>` : ''}
                     <p class="small fw-semibold text-success">Coste: ${station.refuelCost.toFixed(2)}€</p>
                 </div>
             </div>
@@ -1799,12 +1752,21 @@ function displayResults(results, origin, destination) {
         const icon = L.divIcon({ html: markerHtml, className: '', iconSize: [32, 32], iconAnchor: [16, 16] });
 
         L.marker([station.lat, station.lon], { icon, stationId: station.id })
-            .bindPopup(`<b>Parada ${index + 1}: ${station.name}</b><br>${station.address}<br>Precio: ${formatPrice(station.prices[params.fuelType], params)}`)
+            .bindPopup(`<b>Parada ${index + 1}: ${escapeHtml(station.name)}</b><br>${escapeHtml(station.address)}<br>Precio: ${formatPrice(station.prices[params.fuelType], params)}`)
             .addTo(stationMarkers);
     });
 
     // Acciones: paradas manuales + nueva ruta
     appendActionButtons(origin, destination);
+}
+
+// Aviso de plan apurado: para completar la ruta no se ha podido respetar la
+// reserva de seguridad (ni el repostaje mínimo por parada).
+function tightPlanWarning(isEV) {
+    const warning = document.createElement('div');
+    warning.className = 'p-2 bg-warning-subtle border border-warning-subtle rounded-3 mb-2 small text-warning-emphasis';
+    warning.textContent = `⚠️ Plan muy ajustado: para completar la ruta hay que apurar la reserva ${isEV ? 'de la batería' : 'del depósito'}. Si puedes, ${isEV ? 'carga' : 'reposta'} antes de salir.`;
+    return warning;
 }
 
 // --- Carga lenta cerca del destino (solo eléctricos) ---
@@ -1839,11 +1801,11 @@ async function appendDestinationChargers(destCoords) {
         card.innerHTML = `
             <div class="d-flex justify-content-between align-items-center">
                 <div class="flex-grow-1">
-                    <p class="fw-bold station-name mb-0">${c.name}</p>
-                    <p class="small text-body-secondary mb-0">${c.kw} kW ${c.dc ? 'DC' : 'AC'}${c.op ? ` · ${c.op}` : ''} · a ${c.distKm.toFixed(1)} km del destino</p>
-                    ${c.precioTexto ? `<p class="small text-muted mb-0">${c.precioTexto}</p>` : ''}
+                    <p class="fw-bold station-name mb-0">${escapeHtml(c.name)}</p>
+                    <p class="small text-body-secondary mb-0">${escapeHtml(c.kw)} kW ${c.dc ? 'DC' : 'AC'}${c.op ? ` · ${escapeHtml(c.op)}` : ''} · a ${c.distKm.toFixed(1)} km del destino</p>
+                    ${c.precioTexto ? `<p class="small text-muted mb-0">${escapeHtml(c.precioTexto)}</p>` : ''}
                 </div>
-                <a href="${gmaps}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary ms-2" title="Cómo llegar"><i class="bi bi-geo-alt" aria-hidden="true"></i></a>
+                <button type="button" data-open-url="${escapeHtml(gmaps)}" class="btn btn-sm btn-outline-primary ms-2" title="Cómo llegar" aria-label="Cómo llegar"><i class="bi bi-geo-alt" aria-hidden="true"></i></button>
             </div>
         `;
         section.appendChild(card);
@@ -1875,7 +1837,7 @@ function handleNearbySearch() {
             const here = turf.point([longitude, latitude]);
 
             const nearby = dataset
-                .filter(s => params.mode === 'ev' || s.prices[params.fuelType])
+                .filter(s => hasPrice(s, params.fuelType))
                 .map(s => ({
                     ...s,
                     distKm: turf.distance(here, turf.point([s.lon, s.lat]), { units: 'kilometers' })
@@ -1915,13 +1877,13 @@ function handleNearbySearch() {
                 card.innerHTML = `
                     <div class="d-flex justify-content-between align-items-center">
                         <div class="flex-grow-1">
-                            <p class="fw-bold station-name mb-0">${i + 1}. ${s.name}</p>
-                            <p class="small text-body-secondary mb-0">${s.horario || ''}</p>
-                            <p class="small text-muted mb-0">${s.address} · a ${s.distKm.toFixed(1)} km</p>
+                            <p class="fw-bold station-name mb-0">${i + 1}. ${escapeHtml(s.name)}</p>
+                            <p class="small text-body-secondary mb-0">${escapeHtml(s.horario)}</p>
+                            <p class="small text-muted mb-0">${escapeHtml(s.address)} · a ${s.distKm.toFixed(1)} km</p>
                         </div>
                         <div class="text-end ms-2 flex-shrink-0">
                             <p class="h6 fw-bold text-body-emphasis mb-1">${formatPrice(s.prices[params.fuelType], params)}</p>
-                            <a href="${gmaps}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary" title="Cómo llegar"><i class="bi bi-geo-alt" aria-hidden="true"></i> Ir</a>
+                            <button type="button" data-open-url="${escapeHtml(gmaps)}" class="btn btn-sm btn-outline-primary" title="Cómo llegar"><i class="bi bi-geo-alt" aria-hidden="true"></i> Ir</button>
                         </div>
                     </div>
                 `;
@@ -1930,7 +1892,7 @@ function handleNearbySearch() {
                 const markerHtml = `<div style="background-color: #4138c2; color: white; border-radius: 50%; width: 1.8rem; height: 1.8rem; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3); font-size: 0.9rem;">${i + 1}</div>`;
                 const icon = L.divIcon({ html: markerHtml, className: '', iconSize: [28, 28], iconAnchor: [14, 14] });
                 L.marker([s.lat, s.lon], { icon })
-                    .bindPopup(`<b>${s.name}</b><br>${s.address}<br>${formatPrice(s.prices[params.fuelType], params)} · a ${s.distKm.toFixed(1)} km`)
+                    .bindPopup(`<b>${escapeHtml(s.name)}</b><br>${escapeHtml(s.address)}<br>${formatPrice(s.prices[params.fuelType], params)} · a ${s.distKm.toFixed(1)} km`)
                     .addTo(stationMarkers);
             });
 

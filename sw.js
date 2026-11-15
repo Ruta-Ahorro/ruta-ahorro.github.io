@@ -1,112 +1,98 @@
-// A name for our cache - INCREMENTAR VERSION PARA FORZAR ACTUALIZACIÓN
-const CACHE_NAME = 'gas-ruta-cache-v2.4';
+// Service worker: caché del "app shell" para que la PWA abra sin conexión.
+// Incrementar CACHE_NAME al cambiar las listas de abajo.
+const CACHE_NAME = 'gas-ruta-cache-v2.6';
 
-// The URLs we want to cache. These are the "app shell" files.
-// Las versiones de los CDN deben coincidir con las de index.html.
-const urlsToCache = [
+// Ficheros propios. Si alguno falla, la instalación falla (y se reintenta).
+const APP_SHELL = [
     '/',
     '/index.html',
     '/app.js',
-    '/dark-mode.js',
+    '/route-stations.js',
     '/worker.js',
+    '/analytics.js',
+    '/dark-mode.js',
     '/manifest.json',
     '/mapa-placeholder.png',
     '/logo192.png',
-    '/logo512.png',
+    '/logo512.png'
+];
+
+// Librerías de CDN. Llevan versión fija, así que su contenido no cambia
+// nunca; las versiones deben coincidir con las de index.html.
+const CDN_ASSETS = [
     'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css',
     'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css',
     'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
-    'https://unpkg.com/@turf/turf@6/turf.min.js',
+    'https://unpkg.com/@turf/turf@6.5.0/turf.min.js',
     'https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js',
     'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap'
 ];
 
-// Listen for the 'install' event.
-// This is where we will cache our app shell files.
+// Hosts cuyo contenido se sirve primero desde la caché (versiones fijas y fuentes)
+const CACHE_FIRST_HOSTS = new Set(['cdn.jsdelivr.net', 'unpkg.com', 'fonts.googleapis.com', 'fonts.gstatic.com']);
+
 self.addEventListener('install', event => {
-    console.log('Service Worker: Installing v2.3...');
-    // Forzar la activación inmediata del nuevo service worker
-    self.skipWaiting();
-    
-    // waitUntil() ensures that the service worker will not install until the code inside has successfully completed.
-    event.waitUntil(
-        caches.open(CACHE_NAME)
-            .then(cache => {
-                console.log('Service Worker: Caching app shell v2.3');
-                // Add all the specified URLs to the cache.
-                return cache.addAll(urlsToCache);
-            })
-    );
+    self.skipWaiting(); // activar la nueva versión cuanto antes
+    event.waitUntil((async () => {
+        const cache = await caches.open(CACHE_NAME);
+        await cache.addAll(APP_SHELL);
+        // Un CDN caído no debe impedir instalar la app: lo que falte se
+        // guardará la primera vez que se use.
+        await Promise.allSettled(CDN_ASSETS.map(url => cache.add(url)));
+    })());
 });
 
-// Listen for the 'fetch' event.
-// This event fires every time the app requests a resource (e.g., a page, script, image).
-self.addEventListener('fetch', event => {
-    // Para archivos críticos (.html, .js), priorizar la red sobre el cache
-    const isCriticalFile = event.request.url.includes('.html') || 
-                          event.request.url.includes('.js') || 
-                          event.request.url.includes('app.js') ||
-                          event.request.url.includes('index.html');
-    
-    if (isCriticalFile) {
-        // Network first para archivos críticos
-        event.respondWith(
-            fetch(event.request)
-                .then(response => {
-                    // Si la red funciona, actualizar cache y devolver respuesta
-                    if (response && response.status === 200) {
-                        const responseClone = response.clone();
-                        caches.open(CACHE_NAME)
-                            .then(cache => {
-                                cache.put(event.request, responseClone);
-                            });
-                    }
-                    return response;
-                })
-                .catch(() => {
-                    // Si la red falla, usar cache como fallback
-                    return caches.match(event.request);
-                })
-        );
-    } else {
-        // Cache first para otros recursos (CSS, imágenes, etc.)
-        event.respondWith(
-            caches.match(event.request)
-                .then(response => {
-                    // If we have a cached response, return it.
-                    if (response) {
-                        return response;
-                    }
-                    // If the request is not in the cache, fetch it from the network.
-                    return fetch(event.request);
-                }
-            )
-        );
-    }
-});
-
-// Listen for the 'activate' event.
-// This is a good place to manage old caches.
 self.addEventListener('activate', event => {
-    console.log('Service Worker: Activating v2.3...');
-    // Tomar control inmediatamente de todos los clientes
-    clients.claim();
-    
-    const cacheWhitelist = [CACHE_NAME];
-    event.waitUntil(
-        caches.keys().then(cacheNames => {
-            return Promise.all(
-                // Map over all the cache names
-                cacheNames.map(cacheName => {
-                    // If a cache is not in our whitelist, delete it.
-                    if (cacheWhitelist.indexOf(cacheName) === -1) {
-                        console.log('Service Worker: Deleting old cache', cacheName);
-                        return caches.delete(cacheName);
-                    }
-                })
-            );
-        })
-    );
+    event.waitUntil((async () => {
+        const names = await caches.keys();
+        await Promise.all(names.filter(name => name !== CACHE_NAME).map(name => caches.delete(name)));
+        await self.clients.claim();
+    })());
+});
+
+// Ficheros propios (HTML, JS, datos de precios): la red primero para tener
+// siempre la última versión; la caché solo si no hay conexión.
+async function networkFirst(request, cacheKey) {
+    const cache = await caches.open(CACHE_NAME);
+    try {
+        const response = await fetch(request);
+        if (response.ok) cache.put(cacheKey, response.clone());
+        return response;
+    } catch (error) {
+        const cached = await cache.match(cacheKey);
+        if (cached) return cached;
+        throw error;
+    }
+}
+
+// Contenido que no cambia: la caché primero, y la red solo la primera vez.
+async function cacheFirst(request) {
+    const cache = await caches.open(CACHE_NAME);
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    const response = await fetch(request);
+    if (response.ok) cache.put(request, response.clone());
+    return response;
+}
+
+self.addEventListener('fetch', event => {
+    const request = event.request;
+    if (request.method !== 'GET') return;
+    const url = new URL(request.url);
+
+    if (url.origin === self.location.origin) {
+        if (/\.(png|ico|svg)$/.test(url.pathname)) {
+            event.respondWith(cacheFirst(request));
+        } else {
+            // Se guarda sin la query string: las rutas compartidas llevan origen
+            // y destino en ella, y no deben multiplicar (ni quedar en) la caché.
+            event.respondWith(networkFirst(request, url.origin + url.pathname));
+        }
+    } else if (CACHE_FIRST_HOSTS.has(url.hostname)) {
+        event.respondWith(cacheFirst(request));
+    }
+    // El resto (teselas del mapa, geocodificación, rutas, analítica) va
+    // directo a la red, sin pasar por el service worker.
 });
