@@ -27,8 +27,12 @@ las paradas de repostaje para ahorrar dinero en cada viaje.
 
 - Configuras batería (kWh) y consumo (kWh/100 km).
 - Puedes filtrar los cargadores por potencia mínima (22/50/100/150 kW).
-- Se usa el precio publicado del cargador cuando existe; si no, tu tarifa por defecto
-  (ahí puedes reflejar tu suscripción). Los cargadores gratuitos aparecen como "Gratis".
+- El precio de cada cargador sale, por este orden, de: tu tarifa con ese operador
+  ("Mis tarifas por operador", para suscripciones y planes; €/kWh en AC y en DC),
+  el precio publicado, o una estimación marcada con «≈» (mediana de lo que cobra
+  ese operador en cargadores parecidos). Los gratuitos aparecen como "Gratis".
+- Las tarjetas avisan de los recargos que no entran en el €/kWh: parking de pago,
+  penalización por minuto, cobro por tiempo o coste fijo por sesión.
 - Cada parada muestra el tiempo de carga estimado y, al llegar, se sugieren
   cargadores lentos (≤ 22 kW) cerca del destino.
 - En combustión, los descuentos por marca (Waylet, etc.) se configuran en cts/L
@@ -45,7 +49,11 @@ las paradas de repostaje para ahorrar dinero en cada viaje.
 - **Puntos de carga eléctrica:** [OpenChargeMap](https://openchargemap.org/). El mismo workflow
   los descarga (requiere el secret `OCM_API_KEY` en GitHub) y los procesa con
   [`scripts/procesar-cargadores.js`](scripts/procesar-cargadores.js) a
-  [`data/cargadores.json`](data/cargadores.json).
+  [`data/cargadores.json`](data/cargadores.json). El precio llega como texto libre;
+  [`scripts/precios-cargadores.js`](scripts/precios-cargadores.js) lo interpreta
+  (precio del conector AC o DC, gratuitos, recargos) y estima el de los que no lo
+  publican. Tesla no publica precios por estación en ninguna fuente abierta: se
+  usa un valor de referencia que hay que revisar a mano de vez en cuando.
 - **Geocodificación y autocompletado:** [Nominatim](https://nominatim.org/) (OpenStreetMap).
 - **Cálculo de rutas:** [OSRM](https://project-osrm.org/).
 - **Mapa:** [Leaflet](https://leafletjs.com/) con teselas de OpenStreetMap.
@@ -64,6 +72,7 @@ las paradas de repostaje para ahorrar dinero en cada viaje.
 | `data/estaciones.json` | Precios de gasolineras (generado automáticamente, no editar a mano) |
 | `privacidad.html` | Política de privacidad |
 | `tests/test-worker.js` | Tests de los algoritmos de optimización |
+| `tests/test-precios.js` | Tests del intérprete de precios de cargadores |
 
 ## Desarrollo local
 

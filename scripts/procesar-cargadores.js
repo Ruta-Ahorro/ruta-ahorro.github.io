@@ -6,6 +6,7 @@
 // Lo ejecuta el workflow de GitHub Actions (actualizar-datos.yml) y también
 // sirve para regenerar los datos en local.
 const fs = require('fs');
+const { parsearCoste, estimarPrecios } = require('./precios-cargadores');
 
 const [rawPath, refPath, outPath] = process.argv.slice(2);
 if (!rawPath || !refPath || !outPath) {
@@ -28,19 +29,7 @@ const operadores = new Map((ref.Operators || []).map(o => [o.ID, o.Title]));
 // Estados que consideramos utilizables: desconocido, operativo o parcialmente operativo
 const ESTADOS_OK = new Set([0, 50, 75]);
 
-// Intenta extraer un precio en €/kWh del texto libre de UsageCost.
-// Ejemplos reales: "0,39€/kWh", "0,50€/kWh DC - 0,35kWh AC", "free", "gratis"
-function parsearPrecio(texto) {
-    if (!texto) return null;
-    if (/gratis|free|gratuito/i.test(texto)) return 0;
-    const m = texto.match(/(\d+[.,]\d+)\s*€?\s*\/?\s*kwh/i);
-    if (!m) return null;
-    const precio = parseFloat(m[1].replace(',', '.'));
-    // Descartar valores absurdos (texto mal formateado)
-    return precio > 0 && precio < 3 ? precio : null;
-}
-
-const cargadores = raw
+const cargadores = estimarPrecios(raw
     .filter(p =>
         p.AddressInfo &&
         Number.isFinite(p.AddressInfo.Latitude) &&
@@ -58,6 +47,9 @@ const cargadores = raw
         const dir = p.AddressInfo;
         const address = [dir.AddressLine1, dir.Town || dir.StateOrProvince].filter(Boolean).join(', ');
 
+        // Precio del conector principal (AC o DC) y recargos que no caben en él
+        const coste = parsearCoste(p.UsageCost, { dc, kw: maxKW });
+
         return {
             id: `ocm-${p.ID}`,
             name: dir.Title || 'Punto de carga',
@@ -68,11 +60,15 @@ const cargadores = raw
             kw: maxKW,
             dc,
             puntos,
-            precio: parsearPrecio(p.UsageCost),
-            precioTexto: p.UsageCost ? String(p.UsageCost).slice(0, 80) : null
+            // Precio publicado en €/kWh (0 = gratis, null = no publicado). A los
+            // que no lo publican, estimarPrecios() les añade `est`.
+            precio: coste.precio,
+            precioTexto: p.UsageCost ? String(p.UsageCost).slice(0, 80) : null,
+            // Recargos: 'parking', 'min', 'hora', 'sesion' (solo si los hay)
+            ...(coste.extra.length > 0 && { extra: coste.extra })
         };
     })
-    .filter(c => c.kw > 0); // sin potencia conocida no se puede planificar
+    .filter(c => c.kw > 0)); // sin potencia conocida no se puede planificar
 
 const out = {
     fecha: new Date().toISOString().slice(0, 16).replace('T', ' '),
@@ -83,4 +79,5 @@ fs.mkdirSync(require('path').dirname(outPath), { recursive: true });
 fs.writeFileSync(outPath, JSON.stringify(out));
 
 const conPrecio = cargadores.filter(c => c.precio !== null).length;
-console.log(`OK: ${cargadores.length} cargadores (${conPrecio} con precio), máx ${Math.max(...cargadores.map(c => c.kw))} kW`);
+const estimados = cargadores.filter(c => c.est !== undefined).length;
+console.log(`OK: ${cargadores.length} cargadores (${conPrecio} con precio publicado, ${estimados} estimados), máx ${Math.max(...cargadores.map(c => c.kw))} kW`);

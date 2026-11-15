@@ -114,6 +114,7 @@ function saveSettings() {
     const mode = document.querySelector('input[name="vehicle-mode"]:checked');
     if (mode) settings.vehicleMode = mode.value;
     settings.discounts = getDiscounts();
+    settings.evTariffs = getEvTariffs();
     try {
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     } catch (e) { /* almacenamiento no disponible: ignorar */ }
@@ -147,6 +148,9 @@ function loadSettings() {
     }
     if (Array.isArray(settings.discounts)) {
         settings.discounts.forEach(d => addDiscountRow(d.brand, d.cents));
+    }
+    if (Array.isArray(settings.evTariffs)) {
+        settings.evTariffs.forEach(t => addEvTariffRow(t.op, t.ac, t.dc));
     }
     if (settings.vehicleMode === 'ev') {
         const evRadio = document.getElementById('mode-ev');
@@ -215,6 +219,123 @@ function applyDiscounts(stations, fuelType) {
             prices: { ...s.prices, [fuelType]: Math.max(0, s.prices[fuelType] - rule.cents / 100) }
         };
     });
+}
+
+// --- Tarifas propias por operador de carga (suscripciones, planes) ---
+// Operadores sin dueño real en OpenChargeMap: no tiene sentido tarifarlos.
+const GENERIC_OPERATOR = /unknown operator|business owner/i;
+
+// ¿La regla del usuario aplica a este cargador? Coincidencia por texto
+// contenido en el operador o en el nombre (igual que los descuentos por marca).
+const matchesOperator = (charger, text) =>
+    `${charger.op || ''} ${charger.name || ''}`.toUpperCase().includes(text.toUpperCase());
+
+function addEvTariffRow(op = '', ac = null, dc = null) {
+    const container = document.getElementById('ev-tariffs-container');
+    const row = document.createElement('div');
+    row.className = 'input-group input-group-sm mb-1 ev-tariff-row';
+    row.innerHTML = `
+        <input type="text" class="form-control ev-tariff-op" list="ev-operators" placeholder="Operador (ej. Iberdrola)" aria-label="Operador">
+        <input type="number" class="form-control ev-tariff-ac" placeholder="AC" aria-label="Tu precio en corriente alterna, en euros por kWh" title="Tu precio en AC (€/kWh)" step="0.01" min="0" style="max-width: 5rem;">
+        <input type="number" class="form-control ev-tariff-dc" placeholder="DC" aria-label="Tu precio en corriente continua, en euros por kWh" title="Tu precio en DC (€/kWh)" step="0.01" min="0" style="max-width: 5rem;">
+        <button type="button" class="btn btn-outline-danger ev-tariff-remove" aria-label="Quitar tarifa">&times;</button>
+    `;
+    const opInput = row.querySelector('.ev-tariff-op');
+    opInput.value = op;
+    row.querySelector('.ev-tariff-ac').value = ac ?? '';
+    row.querySelector('.ev-tariff-dc').value = dc ?? '';
+    opInput.addEventListener('change', () => updateEvTariffHints(row));
+    row.querySelector('.ev-tariff-remove').addEventListener('click', () => {
+        row.remove();
+        saveSettings();
+    });
+    container.appendChild(row);
+    updateEvTariffHints(row);
+    return opInput;
+}
+
+// Un precio vacío significa "no tengo tarifa propia para ese tipo de carga";
+// 0 es válido (carga gratuita incluida en el plan).
+function getEvTariffs() {
+    const price = (input) => {
+        const value = parseFloat(input.value);
+        return input.value !== '' && value >= 0 ? value : null;
+    };
+    return [...document.querySelectorAll('.ev-tariff-row')]
+        .map(row => ({
+            op: row.querySelector('.ev-tariff-op').value.trim(),
+            ac: price(row.querySelector('.ev-tariff-ac')),
+            dc: price(row.querySelector('.ev-tariff-dc'))
+        }))
+        .filter(t => t.op && (t.ac !== null || t.dc !== null));
+}
+
+// Muestra como referencia, en los campos vacíos, el precio público habitual
+// del operador elegido (mediana de sus cargadores con precio publicado).
+function updateEvTariffHints(row) {
+    const op = row.querySelector('.ev-tariff-op').value.trim();
+    const median = (isDC) => {
+        if (!op) return null;
+        const prices = allChargers
+            .filter(c => c.dc === isDC && c.precio > 0 && matchesOperator(c, op))
+            .map(c => c.precio)
+            .sort((a, b) => a - b);
+        return prices.length ? prices[prices.length >> 1] : null;
+    };
+    const hint = (label, value) => value === null ? label : `${label} ${value.toFixed(2)}`;
+    row.querySelector('.ev-tariff-ac').placeholder = hint('AC', median(false));
+    row.querySelector('.ev-tariff-dc').placeholder = hint('DC', median(true));
+}
+
+// Rellena el desplegable de operadores (los más presentes primero) y las
+// referencias de precio de las tarifas ya guardadas.
+function populateEvOperators() {
+    const counts = new Map();
+    for (const c of allChargers) {
+        if (c.op && !GENERIC_OPERATOR.test(c.op)) counts.set(c.op, (counts.get(c.op) || 0) + 1);
+    }
+    const options = [...counts]
+        .sort((a, b) => b[1] - a[1])
+        .map(([op]) => {
+            const option = document.createElement('option');
+            option.value = op;
+            return option;
+        });
+    document.getElementById('ev-operators').replaceChildren(...options);
+    document.querySelectorAll('.ev-tariff-row').forEach(updateEvTariffHints);
+}
+
+// Precio que paga el usuario en un cargador y de dónde sale:
+// su tarifa propia → el publicado → el estimado → la tarifa por defecto.
+function resolveChargerPrice(charger, tariffs, defaultTariff) {
+    const rule = tariffs.find(t => (charger.dc ? t.dc : t.ac) !== null && matchesOperator(charger, t.op));
+    if (rule) return { price: charger.dc ? rule.dc : rule.ac, source: 'own' };
+    if (charger.precio != null) return { price: charger.precio, source: 'published' };
+    if (charger.est != null) return { price: charger.est, source: 'estimated' };
+    return { price: defaultTariff, source: 'default' };
+}
+
+const PRICE_SOURCE_LABELS = { own: 'tu tarifa', estimated: 'estimado', default: 'tarifa por defecto' };
+const PRICE_EXTRA_LABELS = {
+    parking: 'parking de pago',
+    min: 'penalización por minuto',
+    hora: 'se cobra por tiempo',
+    sesion: 'coste fijo por sesión'
+};
+
+// Precio de una estación tal como se enseña: los estimados llevan «≈».
+const formatStationPrice = (station, params) =>
+    `${station.priceSource === 'estimated' ? '≈ ' : ''}${formatPrice(station.prices[params.fuelType], params)}`;
+
+// Línea bajo el precio de un cargador: origen del dato (si no es el publicado)
+// y recargos que no entran en el €/kWh. Vacía para gasolineras.
+function priceNoteHtml(station) {
+    const parts = [];
+    if (PRICE_SOURCE_LABELS[station.priceSource]) parts.push(PRICE_SOURCE_LABELS[station.priceSource]);
+    for (const extra of station.extra || []) {
+        if (PRICE_EXTRA_LABELS[extra]) parts.push(`+ ${PRICE_EXTRA_LABELS[extra]}`);
+    }
+    return parts.length ? `<p class="small text-muted mb-0 price-note">${parts.join(' · ')}</p>` : '';
 }
 
 // --- Rutas compartibles: ?origen=...&destino=...&paradas=a|b&modo=ev ---
@@ -331,6 +452,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('add-waypoint-btn').addEventListener('click', () => addWaypointInput().focus());
     document.getElementById('invert-route-btn').addEventListener('click', invertRoute);
     document.getElementById('add-discount-btn').addEventListener('click', () => addDiscountRow());
+    document.getElementById('add-ev-tariff-btn').addEventListener('click', () => addEvTariffRow().focus());
 
     // Reordenar los puntos de la ruta arrastrando el asa (también en táctil).
     // Tras cada arrastre, el primer punto pasa a etiquetarse como origen y el
@@ -1019,6 +1141,7 @@ async function fetchChargers() {
             const data = await response.json();
             allChargers = Array.isArray(data.cargadores) ? data.cargadores : [];
             console.log(`Cargados ${allChargers.length} puntos de carga.`);
+            populateEvOperators();
             return allChargers;
         } catch (error) {
             console.error('Error cargando puntos de carga:', error);
@@ -1065,22 +1188,28 @@ function getEffectiveParams() {
 async function getActiveStations(params) {
     if (params.mode === 'ev') {
         const chargers = await fetchChargers();
+        const tariffs = getEvTariffs();
         return chargers
             .filter(c => c.kw >= (params.minChargePower || 0))
-            .map(c => ({
-                id: c.id,
-                name: c.name,
-                address: c.address,
-                lat: c.lat,
-                lon: c.lon,
-                tipoVenta: 'P',
-                kw: c.kw,
-                precioTexto: c.precioTexto,
-                // El campo horario se muestra en las tarjetas: aquí va la info útil del cargador
-                horario: `${c.kw} kW ${c.dc ? 'DC' : 'AC'}${c.puntos ? ` · ${c.puntos} ${c.puntos === 1 ? 'punto' : 'puntos'}` : ''}${c.op ? ` · ${c.op}` : ''}`,
-                // Precio real publicado si existe; si no, la tarifa del usuario
-                prices: { EV: c.precio ?? params.tariff }
-            }));
+            .map(c => {
+                const { price, source } = resolveChargerPrice(c, tariffs, params.tariff);
+                return {
+                    id: c.id,
+                    name: c.name,
+                    address: c.address,
+                    lat: c.lat,
+                    lon: c.lon,
+                    tipoVenta: 'P',
+                    kw: c.kw,
+                    precioTexto: c.precioTexto,
+                    // El campo horario se muestra en las tarjetas: aquí va la info útil del cargador
+                    horario: `${c.kw} kW ${c.dc ? 'DC' : 'AC'}${c.puntos ? ` · ${c.puntos} ${c.puntos === 1 ? 'punto' : 'puntos'}` : ''}${c.op ? ` · ${c.op}` : ''}`,
+                    prices: { EV: price },
+                    // De dónde sale el precio y qué recargos tiene: se enseña en las tarjetas
+                    priceSource: source,
+                    extra: c.extra
+                };
+            });
     }
     let stations = allGasStations;
     if (document.getElementById('adblue-filter').checked) {
@@ -1338,7 +1467,7 @@ function updateMapMarkers(stations) {
         const icon = L.divIcon({ html: markerHtml, className: '', iconSize: [28, 28], iconAnchor: [14, 14] });
 
         L.marker([station.lat, station.lon], { icon })
-            .bindPopup(`<b>Parada ${stopIndex}: ${station.name}</b><br>${station.address}<br>Precio: ${station.prices[currentRouteData.params.fuelType].toFixed(3)} ${priceUnit(currentRouteData.params)}<br>Km ${Math.round(station.distanceFromStart)} desde origen`)
+            .bindPopup(`<b>Parada ${stopIndex}: ${station.name}</b><br>${station.address}<br>Precio: ${formatStationPrice(station, currentRouteData.params)}<br>Km ${Math.round(station.distanceFromStart)} desde origen`)
             .addTo(stationMarkers);
     });
     
@@ -1520,7 +1649,8 @@ resultsDiv.appendChild(headerContainer);
                     <span class="small text-muted">Km ${Math.round(station.distanceFromStart)}${station.distanceToRoute != null ? ` · a ${station.distanceToRoute.toFixed(1)} km de la ruta` : ''}</span></p>
                 </div>
                 <div class="text-end ms-2">
-                    <p class="h6 fw-bold text-body-emphasis mb-0">${station.prices[currentRouteData.params.fuelType].toFixed(3)} ${priceUnit(currentRouteData.params)}</p>
+                    <p class="h6 fw-bold text-body-emphasis mb-0">${formatStationPrice(station, currentRouteData.params)}</p>
+                    ${priceNoteHtml(station)}
                 </div>
             </div>
         `;
@@ -1786,9 +1916,10 @@ function displayResults(results, origin, destination) {
                     <p class="small text-muted">Aprox. en el km ${Math.round(station.distanceFromStart)}</p>
                 </div>
                 <div class="text-end ms-2 flex-shrink-0">
-                    <p class="h5 fw-bold text-body-emphasis">${formatPrice(station.prices[params.fuelType], params)}</p>
+                    <p class="h5 fw-bold text-body-emphasis">${formatStationPrice(station, params)}</p>
                     <p class="small text-muted">${isEV ? 'Cargar' : 'Repostar'}: ${station.refuelAmount.toFixed(1)} ${amountUnit(params)}</p>
-                    <p class="small fw-semibold text-success">Coste: ${station.refuelCost.toFixed(2)}€</p>
+                    <p class="small fw-semibold text-success">Coste: ${station.priceSource === 'estimated' ? '≈ ' : ''}${station.refuelCost.toFixed(2)}€</p>
+                    ${priceNoteHtml(station)}
                 </div>
             </div>
         `;
@@ -1799,7 +1930,7 @@ function displayResults(results, origin, destination) {
         const icon = L.divIcon({ html: markerHtml, className: '', iconSize: [32, 32], iconAnchor: [16, 16] });
 
         L.marker([station.lat, station.lon], { icon, stationId: station.id })
-            .bindPopup(`<b>Parada ${index + 1}: ${station.name}</b><br>${station.address}<br>Precio: ${formatPrice(station.prices[params.fuelType], params)}`)
+            .bindPopup(`<b>Parada ${index + 1}: ${station.name}</b><br>${station.address}<br>Precio: ${formatStationPrice(station, params)}`)
             .addTo(stationMarkers);
     });
 
@@ -1832,8 +1963,15 @@ async function appendDestinationChargers(destCoords) {
     section.innerHTML = `<h4 class="h6 fw-bold text-body-emphasis">🔌 Carga lenta cerca del destino</h4>
         <p class="form-text mt-0 mb-2">Para dejar el coche cargando al llegar.</p>`;
 
+    const evParams = getEffectiveParams();
+    const tariffs = getEvTariffs();
+
     nearby.forEach(c => {
         const gmaps = `https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lon}`;
+        const { price, source } = resolveChargerPrice(c, tariffs, evParams.tariff);
+        const station = { prices: { EV: price }, priceSource: source, extra: c.extra };
+        // El texto original solo aporta algo cuando no se ha podido traducir a un precio
+        const rawCost = c.precio == null && c.precioTexto ? `<p class="small text-muted mb-0">${c.precioTexto}</p>` : '';
         const card = document.createElement('div');
         card.className = 'card card-body mb-2 bg-body-tertiary py-2';
         card.innerHTML = `
@@ -1841,7 +1979,9 @@ async function appendDestinationChargers(destCoords) {
                 <div class="flex-grow-1">
                     <p class="fw-bold station-name mb-0">${c.name}</p>
                     <p class="small text-body-secondary mb-0">${c.kw} kW ${c.dc ? 'DC' : 'AC'}${c.op ? ` · ${c.op}` : ''} · a ${c.distKm.toFixed(1)} km del destino</p>
-                    ${c.precioTexto ? `<p class="small text-muted mb-0">${c.precioTexto}</p>` : ''}
+                    <p class="small fw-bold text-body-emphasis mb-0">${formatStationPrice(station, evParams)}</p>
+                    ${priceNoteHtml(station)}
+                    ${rawCost}
                 </div>
                 <a href="${gmaps}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary ms-2" title="Cómo llegar"><i class="bi bi-geo-alt" aria-hidden="true"></i></a>
             </div>
@@ -1920,7 +2060,8 @@ function handleNearbySearch() {
                             <p class="small text-muted mb-0">${s.address} · a ${s.distKm.toFixed(1)} km</p>
                         </div>
                         <div class="text-end ms-2 flex-shrink-0">
-                            <p class="h6 fw-bold text-body-emphasis mb-1">${formatPrice(s.prices[params.fuelType], params)}</p>
+                            <p class="h6 fw-bold text-body-emphasis mb-1">${formatStationPrice(s, params)}</p>
+                            ${priceNoteHtml(s)}
                             <a href="${gmaps}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary" title="Cómo llegar"><i class="bi bi-geo-alt" aria-hidden="true"></i> Ir</a>
                         </div>
                     </div>
@@ -1930,7 +2071,7 @@ function handleNearbySearch() {
                 const markerHtml = `<div style="background-color: #4138c2; color: white; border-radius: 50%; width: 1.8rem; height: 1.8rem; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3); font-size: 0.9rem;">${i + 1}</div>`;
                 const icon = L.divIcon({ html: markerHtml, className: '', iconSize: [28, 28], iconAnchor: [14, 14] });
                 L.marker([s.lat, s.lon], { icon })
-                    .bindPopup(`<b>${s.name}</b><br>${s.address}<br>${formatPrice(s.prices[params.fuelType], params)} · a ${s.distKm.toFixed(1)} km`)
+                    .bindPopup(`<b>${s.name}</b><br>${s.address}<br>${formatStationPrice(s, params)} · a ${s.distKm.toFixed(1)} km`)
                     .addTo(stationMarkers);
             });
 
