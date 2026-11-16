@@ -31,6 +31,14 @@ const num = (v) => {
 const enEspana = (lat, lon) =>
     lat !== null && lon !== null && lat > 27 && lat < 44.5 && lon > -19 && lon < 5;
 
+// Código INE de provincia ("01".."52"); null si no es válido
+function codigoProvincia(id) {
+    const m = String(id || '').trim().match(/^(\d{1,2})$/);
+    if (!m) return null;
+    const n = Number(m[1]);
+    return n >= 1 && n <= 52 ? String(n).padStart(2, '0') : null;
+}
+
 // "dd/mm/aaaa hh:mm:ss" → Date
 function parseFecha(f) {
     const m = String(f || '').match(/(\d{2})\/(\d{2})\/(\d{4})[ T](\d{1,2}):(\d{2}):?(\d{2})?/);
@@ -53,6 +61,9 @@ function procesarEstaciones(raw) {
             lon: num(s['Longitud (WGS84)']),
             tipoVenta: s['Tipo Venta'],
             horario: s['Horario'],
+            // Provincia (código INE): para el ranking por provincia y para
+            // comparar cada precio con lo normal en su zona
+            prov: codigoProvincia(s['IDProvincia']),
             prices
         };
     }).filter(s => enEspana(s.lat, s.lon));
@@ -98,4 +109,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { procesarEstaciones, enEspana, MIN_ESTACIONES };
+module.exports = { procesarEstaciones, codigoProvincia, enEspana, MIN_ESTACIONES };

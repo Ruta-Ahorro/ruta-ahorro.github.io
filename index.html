@@ -502,7 +502,11 @@
                     <i class="bi bi-crosshair me-2" aria-hidden="true"></i>
                     Buscar cerca de mi ubicación
                 </button>
-                <p class="form-text mt-1 small text-muted">Paradas manuales: elige entre las 15 más baratas de la ruta. Cerca de mí: lo más barato alrededor de tu posición.</p>
+                <button type="button" id="ranking-btn" class="btn btn-outline-success w-100 fw-bold py-2 mt-2">
+                    <i class="bi bi-trophy me-2" aria-hidden="true"></i>
+                    Ranking de precios
+                </button>
+                <p class="form-text mt-1 small text-muted">Paradas manuales: elige entre las 15 más baratas de la ruta. Cerca de mí: lo más barato alrededor de tu posición. Ranking: marcas y estaciones más baratas de España, tu provincia o cerca de ti.</p>
             </form>
         </div>
 
@@ -538,6 +542,7 @@
 
     <script src="dark-mode.js" defer></script>
     <script src="route-stations.js" defer></script>
+    <script src="ranking.js" defer></script>
     <script src="app.js" defer></script>
     <!-- Google Analytics: solo se carga si se acepta en el aviso de consentimiento.
          Debe ir después de app.js (ver nativeReplaceState en app.js). -->

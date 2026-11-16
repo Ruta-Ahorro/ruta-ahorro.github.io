@@ -3,7 +3,7 @@
   "private": true,
   "description": "Optimizador de rutas de gasolina — dependencias de test de los algoritmos del worker",
   "scripts": {
-    "test": "node tests/test-worker.js && node tests/test-scripts.js && node tests/test-precios.js"
+    "test": "node tests/test-worker.js && node tests/test-scripts.js && node tests/test-precios.js && node tests/test-ranking.js"
   },
   "devDependencies": {
     "@turf/turf": "^6.5.0"
