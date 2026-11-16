@@ -33,8 +33,15 @@ las paradas de repostaje para ahorrar dinero en cada viaje.
 - Configuras batería (kWh) y consumo (kWh/100 km).
 - Puedes filtrar los cargadores por potencia mínima (22/50/100/150 kW) y elegir
   hasta qué nivel cargar en ruta (por defecto, el 80 %).
-- Se usa el precio publicado del cargador cuando existe; si no, tu tarifa por defecto
-  (ahí puedes reflejar tu suscripción). Los cargadores gratuitos aparecen como "Gratis".
+- El precio de cada cargador sale, por este orden, de: tu tarifa con ese operador
+  ("Mis tarifas por operador", para suscripciones y planes; €/kWh en AC y en DC),
+  el precio publicado, o una estimación marcada con «≈» (mediana de lo que cobra
+  ese operador en cargadores parecidos). Los gratuitos aparecen como "Gratis".
+- Los cargadores que OpenChargeMap marca como privados no se usan. Los de uso
+  exclusivo para clientes (hoteles, concesionarios, supermercados) solo se
+  ofrecen si activas "Incluir cargadores solo para clientes".
+- Las tarjetas avisan de los recargos que no entran en el €/kWh: parking de pago,
+  penalización por minuto, cobro por tiempo o coste fijo por sesión.
 - Cada parada muestra el tiempo de carga estimado (a la potencia máxima del
   punto; el real depende del coche) y, al llegar, se sugieren cargadores lentos
   (≤ 22 kW) cerca del destino.
@@ -57,7 +64,11 @@ las paradas de repostaje para ahorrar dinero en cada viaje.
   los descarga (requiere el secret `OCM_API_KEY` en GitHub) y los procesa con
   [`scripts/procesar-cargadores.js`](scripts/procesar-cargadores.js) a
   [`data/cargadores.json`](data/cargadores.json). El fichero solo se reescribe
-  si los cargadores han cambiado.
+  si los cargadores han cambiado. El precio llega como texto libre;
+  [`scripts/precios-cargadores.js`](scripts/precios-cargadores.js) lo interpreta
+  (precio del conector AC o DC, gratuitos, recargos) y estima el de los que no lo
+  publican. Tesla no publica precios por estación en ninguna fuente abierta: se
+  usa un valor de referencia que hay que revisar a mano de vez en cuando.
 - **Autocompletado:** [Photon](https://photon.komoot.io/) (komoot, sobre datos de OpenStreetMap).
   La política de uso de Nominatim no permite usarlo para autocompletar.
 - **Geocodificación:** [Nominatim](https://nominatim.org/) (OpenStreetMap), solo para los
@@ -86,6 +97,7 @@ las paradas de repostaje para ahorrar dinero en cada viaje.
 | `privacidad.html` | Política de privacidad |
 | `tests/test-worker.js` | Tests de los algoritmos de optimización y de la geometría |
 | `tests/test-scripts.js` | Tests de los scripts que generan los datos |
+| `tests/test-precios.js` | Tests del intérprete de precios de cargadores |
 
 ## Desarrollo local
 

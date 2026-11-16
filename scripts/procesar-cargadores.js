@@ -7,6 +7,7 @@
 // sirve para regenerar los datos en local.
 const fs = require('fs');
 const path = require('path');
+const { parsearCoste, estimarPrecios } = require('./precios-cargadores');
 
 // Con menos cargadores que esto, la respuesta de OpenChargeMap está
 // incompleta: mejor fallar (y conservar los datos anteriores) que publicarla.
@@ -15,42 +16,45 @@ const MIN_CARGADORES = 5000;
 // Estados que consideramos utilizables: desconocido, operativo o parcialmente operativo
 const ESTADOS_OK = new Set([0, 50, 75]);
 
-// Textos que significan "cargar es gratis" y nada más. Frases como
-// "90' free parking, then at 0,07€/min" o "Free for clients" NO cuentan: ahí
-// lo gratuito es el aparcamiento, o depende de condiciones.
-const ES_GRATIS = /^(free|gratis|gratuito|gratuita|free\s*\/\s*gratis|gratis\s*\/\s*free|free of charge|free of cost|free charging|carga gratuita)\s*[.!]?$/i;
-
-// Intenta extraer un precio en €/kWh del texto libre de UsageCost.
-// Ejemplos reales: "0,39€/kWh", "0,50€/kWh DC - 0,35kWh AC", "free", "gratis"
-// Devuelve null si no se puede saber (la app usará la tarifa del usuario).
-function parsearPrecio(texto) {
-    if (!texto) return null;
-    const t = String(texto).trim();
-
-    // Un precio explícito por kWh manda sobre cualquier otra palabra del texto
-    const m = t.match(/(\d+[.,]\d+)\s*€?\s*\/?\s*kwh/i);
-    if (m) {
-        const precio = parseFloat(m[1].replace(',', '.'));
-        // Descartar valores absurdos (texto mal formateado)
-        return precio > 0 && precio < 3 ? precio : null;
-    }
-
-    return ES_GRATIS.test(t) ? 0 : null;
-}
-
 // Caja que contiene la península, Baleares, Canarias, Ceuta y Melilla
 const enEspana = (lat, lon) =>
     Number.isFinite(lat) && Number.isFinite(lon) && lat > 27 && lat < 44.5 && lon > -19 && lon < 5;
 
+// --- Tipo de acceso (UsageTypeID de OpenChargeMap) ---
+// 2 "Private - Restricted Access" y 3 "Privately Owned - Notice Required": no
+// los puede usar un conductor cualquiera, así que se descartan.
+const USO_PRIVADO = new Set([2, 3]);
+// 6 "Private - For Staff, Visitors or Customers" (hoteles, concesionarios,
+// supermercados): se conservan marcados con `cli` y la app solo los ofrece si
+// el usuario lo pide.
+const USO_SOLO_CLIENTES = new Set([6]);
+// El resto (público, con app o tarjeta, pago en el sitio, sin clasificar) se queda.
+
+// Devuelve una función UsageTypeID -> 'privado' | 'clientes' | 'publico'. Mira
+// también el título del tipo en los datos de referencia, por si OpenChargeMap
+// añade tipos nuevos.
+function clasificadorAcceso(ref) {
+    const titulos = new Map(((ref && ref.UsageTypes) || []).map(u => [u.ID, String(u.Title || '').toLowerCase()]));
+    return (usageTypeId) => {
+        const titulo = titulos.get(usageTypeId) || '';
+        if (USO_SOLO_CLIENTES.has(usageTypeId) || /staff|visitors|customers/.test(titulo)) return 'clientes';
+        if (USO_PRIVADO.has(usageTypeId) || /^private/.test(titulo)) return 'privado';
+        return 'publico';
+    };
+}
+
 function procesarCargadores(raw, ref) {
     // OperatorID -> nombre del operador (relevante para suscripciones)
     const operadores = new Map(((ref && ref.Operators) || []).map(o => [o.ID, o.Title]));
+    const acceso = clasificadorAcceso(ref);
 
-    return raw
+    // A los que no publican precio, estimarPrecios() les añade `est`
+    return estimarPrecios(raw
         .filter(p =>
             p.AddressInfo &&
             enEspana(p.AddressInfo.Latitude, p.AddressInfo.Longitude) &&
-            ESTADOS_OK.has(p.StatusTypeID ?? 0)
+            ESTADOS_OK.has(p.StatusTypeID ?? 0) &&
+            acceso(p.UsageTypeID) !== 'privado'
         )
         .map(p => {
             const conexiones = (p.Connections || []).filter(c => ESTADOS_OK.has(c.StatusTypeID ?? 0));
@@ -63,6 +67,9 @@ function procesarCargadores(raw, ref) {
             const dir = p.AddressInfo;
             const address = [dir.AddressLine1, dir.Town || dir.StateOrProvince].filter(Boolean).join(', ');
 
+            // Precio del conector principal (AC o DC) y recargos que no caben en él
+            const coste = parsearCoste(p.UsageCost, { dc, kw: maxKW });
+
             return {
                 id: `ocm-${p.ID}`,
                 name: dir.Title || 'Punto de carga',
@@ -73,11 +80,16 @@ function procesarCargadores(raw, ref) {
                 kw: maxKW,
                 dc,
                 puntos,
-                precio: parsearPrecio(p.UsageCost),
-                precioTexto: p.UsageCost ? String(p.UsageCost).slice(0, 80) : null
+                // Precio publicado en €/kWh (0 = gratis, null = no publicado)
+                precio: coste.precio,
+                precioTexto: p.UsageCost ? String(p.UsageCost).slice(0, 80) : null,
+                // Recargos: 'parking', 'min', 'hora', 'sesion' (solo si los hay)
+                ...(coste.extra.length > 0 && { extra: coste.extra }),
+                // Solo para clientes o visitantes del sitio (solo si lo es)
+                ...(acceso(p.UsageTypeID) === 'clientes' && { cli: true })
             };
         })
-        .filter(c => c.kw > 0); // sin potencia conocida no se puede planificar
+        .filter(c => c.kw > 0)); // sin potencia conocida no se puede planificar
 }
 
 function main() {
@@ -93,7 +105,9 @@ function main() {
         return JSON.parse(t);
     };
 
-    const cargadores = procesarCargadores(leerJson(rawPath), leerJson(refPath));
+    const raw = leerJson(rawPath);
+    const ref = leerJson(refPath);
+    const cargadores = procesarCargadores(raw, ref);
     if (cargadores.length < MIN_CARGADORES) {
         console.error(`ERROR: OpenChargeMap devolvió solo ${cargadores.length} cargadores válidos (mínimo esperado: ${MIN_CARGADORES}). No se actualiza ${outPath}.`);
         process.exit(1);
@@ -120,9 +134,15 @@ function main() {
     fs.writeFileSync(outPath, JSON.stringify(out));
 
     const conPrecio = cargadores.filter(c => c.precio !== null).length;
-    console.log(`OK: ${cargadores.length} cargadores (${conPrecio} con precio), máx ${Math.max(...cargadores.map(c => c.kw))} kW`);
+    const estimados = cargadores.filter(c => c.est !== undefined).length;
+    console.log(`OK: ${cargadores.length} cargadores (${conPrecio} con precio publicado, ${estimados} estimados), máx ${Math.max(...cargadores.map(c => c.kw))} kW`);
+
+    const acceso = clasificadorAcceso(ref);
+    const privados = raw.filter(p => acceso(p.UsageTypeID) === 'privado').length;
+    const soloClientes = cargadores.filter(c => c.cli).length;
+    console.log(`Acceso: ${privados} privados descartados, ${soloClientes} marcados como solo para clientes`);
 }
 
 if (require.main === module) main();
 
-module.exports = { parsearPrecio, procesarCargadores, enEspana, MIN_CARGADORES };
+module.exports = { procesarCargadores, enEspana, MIN_CARGADORES };

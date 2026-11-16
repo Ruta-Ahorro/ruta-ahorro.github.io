@@ -331,6 +331,16 @@
                             <option value="150">≥ 150 kW (ultrarrápida)</option>
                         </select>
                     </div>
+                    <!-- Tarifas propias por operador (suscripciones, planes, carga gratuita) -->
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Mis tarifas por operador</label>
+                        <p class="form-text mt-0 mb-2">Si tienes suscripción o plan con un operador (Iberdrola, Tesla, Zunder…), pon lo que pagas tú en €/kWh. Sustituye al precio público en sus cargadores, al optimizar y al calcular costes.</p>
+                        <div id="ev-tariffs-container"></div>
+                        <button type="button" id="add-ev-tariff-btn" class="btn btn-outline-secondary btn-sm">
+                            <i class="bi bi-plus-circle" aria-hidden="true"></i> Añadir tarifa
+                        </button>
+                        <datalist id="ev-operators"></datalist>
+                    </div>
                     <div class="mb-2">
                         <label for="ev-max-charge" class="form-label small fw-bold">Cargar en ruta hasta</label>
                         <select id="ev-max-charge" name="ev-max-charge" class="form-select form-select-sm">
@@ -342,12 +352,20 @@
                         <p class="form-text mt-1">Por encima del 80 % la carga rápida se vuelve mucho más lenta.</p>
                     </div>
                     <div class="mb-2">
-                        <label for="ev-tariff" class="form-label small fw-bold">Tu tarifa por defecto</label>
+                        <label for="ev-tariff" class="form-label small fw-bold">Tarifa por defecto</label>
                         <div class="input-group input-group-sm">
                             <input type="number" id="ev-tariff" name="ev-tariff" value="0.45" step="0.01" class="form-control">
                             <span class="input-group-text">€/kWh</span>
                         </div>
-                        <p class="form-text mt-1">Se usa cuando el cargador no publica precio. Si tienes suscripción (Iberdrola, Endesa X…), pon aquí tu precio medio.</p>
+                        <p class="form-text mt-1">Solo se usa si un cargador no tiene precio publicado ni estimación. Cuando falta el precio, se estima con lo que cobra ese operador en cargadores parecidos y se marca con «≈».</p>
+                    </div>
+                    <!-- Se muestra solo si los datos cargados traen cargadores de uso exclusivo para clientes -->
+                    <div id="ev-customers-option" class="mb-2 d-none">
+                        <div class="form-check">
+                            <input type="checkbox" id="ev-include-customers" name="ev-include-customers" class="form-check-input">
+                            <label for="ev-include-customers" class="form-check-label">Incluir cargadores solo para clientes</label>
+                        </div>
+                        <p class="form-text mt-1">Hoteles, concesionarios, supermercados…: solo puedes cargar si eres cliente del sitio.</p>
                     </div>
                     <div class="form-check">
                         <input type="checkbox" id="slow-charge-dest" name="slow-charge-dest" class="form-check-input" checked>

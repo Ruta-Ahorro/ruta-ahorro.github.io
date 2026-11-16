@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const { parsearPrecio, procesarCargadores } = require('../scripts/procesar-cargadores.js');
+const { procesarCargadores } = require('../scripts/procesar-cargadores.js');
 const { procesarEstaciones, MIN_ESTACIONES } = require('../scripts/procesar-estaciones.js');
 
 let fallos = 0;
@@ -14,37 +14,8 @@ function check(cond, msg) {
     if (!cond) fallos++;
 }
 
-// --- Precio de los cargadores (texto libre de OpenChargeMap) ---
-console.log('Precio de los cargadores\n');
-
-const casosPrecio = [
-    ['0,39€/kWh', 0.39],
-    ['0,50€/kWh DC - 0,35kWh AC', 0.5],
-    ['0.45 €/kWh', 0.45],
-    ['free', 0],
-    ['Free', 0],
-    ['Gratis', 0],
-    ['free ', 0],
-    ['Gratis/Free', 0],
-    ['free of charge ', 0],
-    // Lo gratuito es el aparcamiento, o depende de condiciones: precio desconocido
-    ["app Waylet(Repsol). 90' free parking, then at 0,07€/min", null],
-    ['Free for clients', null],
-    ['Free with MELIB card', null],
-    ["First 40' free parking ", null],
-    ['free charging + parking fee', null],
-    // Un precio por kWh manda aunque el texto mencione algo gratis
-    ['parking fee + 0,20€/kWh (0,01€/min parked without charging) First hour free', 0.2],
-    // Valores absurdos y textos sin precio
-    ['25,00€/kWh', null],
-    ['0,07€/min', null],
-    ['', null],
-    [null, null]
-];
-for (const [texto, esperado] of casosPrecio) {
-    const obtenido = parsearPrecio(texto);
-    check(obtenido === esperado, `${JSON.stringify(texto)} → ${esperado} (obtenido ${obtenido})`);
-}
+// El precio de los cargadores (texto libre de OpenChargeMap) se prueba en
+// tests/test-precios.js.
 
 // --- Cargadores: filtros ---
 console.log('\nFiltros de cargadores\n');
@@ -63,6 +34,23 @@ const cargadores = procesarCargadores([
 ], { Operators: [] });
 check(cargadores.length === 1 && cargadores[0].id === 'ocm-1', 'solo queda el cargador operativo, con potencia y en España');
 check(cargadores[0].kw === 150 && cargadores[0].dc === true && cargadores[0].precio === 0.4, 'potencia, tipo de corriente y precio correctos');
+
+// --- Cargadores: tipo de acceso ---
+console.log('\nAcceso a los cargadores\n');
+
+const porAcceso = procesarCargadores([
+    punto(10, 40.4, -3.7, 50, { UsageTypeID: 1 }),  // público
+    punto(11, 40.4, -3.7, 50, { UsageTypeID: 4 }),  // público con app o tarjeta
+    punto(12, 40.4, -3.7, 50),                      // sin clasificar
+    punto(13, 40.4, -3.7, 50, { UsageTypeID: 2 }),  // privado, acceso restringido
+    punto(14, 40.4, -3.7, 50, { UsageTypeID: 3 }),  // particular, con aviso previo
+    punto(15, 40.4, -3.7, 50, { UsageTypeID: 6 }),  // solo clientes o visitantes
+    punto(16, 40.4, -3.7, 50, { UsageTypeID: 99 })  // tipo nuevo, privado según su título
+], { Operators: [], UsageTypes: [{ ID: 99, Title: 'Private - Residents Only' }] });
+check(porAcceso.map(c => c.id).join() === 'ocm-10,ocm-11,ocm-12,ocm-15',
+    `los cargadores privados se descartan (quedan ${porAcceso.map(c => c.id).join()})`);
+check(porAcceso.find(c => c.id === 'ocm-15').cli === true && porAcceso.filter(c => c.cli).length === 1,
+    'solo el de uso para clientes queda marcado con cli');
 
 // --- Estaciones: conversión y filtros ---
 console.log('\nEstaciones del Ministerio\n');
