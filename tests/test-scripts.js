@@ -35,6 +35,23 @@ const cargadores = procesarCargadores([
 check(cargadores.length === 1 && cargadores[0].id === 'ocm-1', 'solo queda el cargador operativo, con potencia y en España');
 check(cargadores[0].kw === 150 && cargadores[0].dc === true && cargadores[0].precio === 0.4, 'potencia, tipo de corriente y precio correctos');
 
+// --- Cargadores: tipo de acceso ---
+console.log('\nAcceso a los cargadores\n');
+
+const porAcceso = procesarCargadores([
+    punto(10, 40.4, -3.7, 50, { UsageTypeID: 1 }),  // público
+    punto(11, 40.4, -3.7, 50, { UsageTypeID: 4 }),  // público con app o tarjeta
+    punto(12, 40.4, -3.7, 50),                      // sin clasificar
+    punto(13, 40.4, -3.7, 50, { UsageTypeID: 2 }),  // privado, acceso restringido
+    punto(14, 40.4, -3.7, 50, { UsageTypeID: 3 }),  // particular, con aviso previo
+    punto(15, 40.4, -3.7, 50, { UsageTypeID: 6 }),  // solo clientes o visitantes
+    punto(16, 40.4, -3.7, 50, { UsageTypeID: 99 })  // tipo nuevo, privado según su título
+], { Operators: [], UsageTypes: [{ ID: 99, Title: 'Private - Residents Only' }] });
+check(porAcceso.map(c => c.id).join() === 'ocm-10,ocm-11,ocm-12,ocm-15',
+    `los cargadores privados se descartan (quedan ${porAcceso.map(c => c.id).join()})`);
+check(porAcceso.find(c => c.id === 'ocm-15').cli === true && porAcceso.filter(c => c.cli).length === 1,
+    'solo el de uso para clientes queda marcado con cli');
+
 // --- Estaciones: conversión y filtros ---
 console.log('\nEstaciones del Ministerio\n');
 

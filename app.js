@@ -96,7 +96,7 @@ const SETTING_IDS = [
     'fuel-type', 'tank-capacity', 'consumption', 'current-fuel', 'final-fuel',
     'search-radius', 'include-restricted', 'adblue-filter',
     'ev-battery', 'ev-consumption', 'min-charge-power',
-    'ev-tariff', 'ev-max-charge', 'slow-charge-dest'
+    'ev-tariff', 'ev-max-charge', 'ev-include-customers', 'slow-charge-dest'
 ];
 
 function saveSettings() {
@@ -307,7 +307,7 @@ function populateEvOperators() {
             option.value = op;
             return option;
         });
-    document.getElementById('ev-operators').replaceChildren(...options);
+    document.getElementById('ev-operators')?.replaceChildren(...options);
     document.querySelectorAll('.ev-tariff-row').forEach(updateEvTariffHints);
 }
 
@@ -502,7 +502,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('add-waypoint-btn').addEventListener('click', () => addWaypointInput().focus());
     document.getElementById('invert-route-btn').addEventListener('click', invertRoute);
     document.getElementById('add-discount-btn').addEventListener('click', () => addDiscountRow());
-    document.getElementById('add-ev-tariff-btn').addEventListener('click', () => addEvTariffRow().focus());
+    document.getElementById('add-ev-tariff-btn')?.addEventListener('click', () => addEvTariffRow().focus());
 
     // Reordenar los puntos de la ruta arrastrando el asa (también en táctil).
     // Tras cada arrastre, el primer punto pasa a etiquetarse como origen y el
@@ -1141,6 +1141,8 @@ async function fetchChargers() {
             allChargers = Array.isArray(data.cargadores) ? data.cargadores : [];
             console.log(`Cargados ${allChargers.length} puntos de carga.`);
             populateEvOperators();
+            // La opción de incluir los de "solo clientes" no haría nada si los datos no traen ninguno
+            document.getElementById('ev-customers-option')?.classList.toggle('d-none', !allChargers.some(c => c.cli));
             return allChargers;
         } catch (error) {
             console.error('Error cargando puntos de carga:', error);
@@ -1173,6 +1175,8 @@ function getEffectiveParams() {
             consumption: parseFloat(document.getElementById('ev-consumption').value) || 16,
             minChargePower: parseFloat(document.getElementById('min-charge-power').value) || 0,
             tariff: parseFloat(document.getElementById('ev-tariff').value) || 0.45,
+            // Cargadores de hoteles, concesionarios, etc.: solo si el usuario los pide
+            includeCustomerOnly: document.getElementById('ev-include-customers')?.checked ?? false,
             // En ruta no se suele cargar al 100 %: el último tramo es muy lento
             maxFillPercent: parseFloat(document.getElementById('ev-max-charge').value) || 80
         };
@@ -1214,7 +1218,7 @@ async function getActiveStations(params) {
         const chargers = await fetchChargers();
         const tariffs = getEvTariffs();
         return chargers
-            .filter(c => c.kw >= (params.minChargePower || 0))
+            .filter(c => c.kw >= (params.minChargePower || 0) && (params.includeCustomerOnly || !c.cli))
             .map(c => {
                 const { price, source } = resolveChargerPrice(c, tariffs, params.tariff);
                 return {
@@ -1227,7 +1231,7 @@ async function getActiveStations(params) {
                     kw: c.kw,
                     precioTexto: c.precioTexto,
                     // El campo horario se muestra en las tarjetas: aquí va la info útil del cargador
-                    horario: `${c.kw} kW ${c.dc ? 'DC' : 'AC'}${c.puntos ? ` · ${c.puntos} ${c.puntos === 1 ? 'punto' : 'puntos'}` : ''}${c.op ? ` · ${c.op}` : ''}`,
+                    horario: `${c.kw} kW ${c.dc ? 'DC' : 'AC'}${c.puntos ? ` · ${c.puntos} ${c.puntos === 1 ? 'punto' : 'puntos'}` : ''}${c.op ? ` · ${c.op}` : ''}${c.cli ? ' · solo clientes' : ''}`,
                     prices: { EV: price },
                     // De dónde sale el precio y qué recargos tiene: se enseña en las tarjetas
                     priceSource: source,
@@ -1908,8 +1912,9 @@ async function appendDestinationChargers(destCoords) {
     if (!chargers.length || !destCoords) return;
 
     const destPoint = turf.point([destCoords.lon, destCoords.lat]);
+    const evParams = getEffectiveParams();
     const nearby = chargers
-        .filter(c => c.kw > 0 && c.kw <= 22)
+        .filter(c => c.kw > 0 && c.kw <= 22 && (evParams.includeCustomerOnly || !c.cli))
         .map(c => ({
             ...c,
             distKm: turf.distance(destPoint, turf.point([c.lon, c.lat]), { units: 'kilometers' })
@@ -1925,7 +1930,6 @@ async function appendDestinationChargers(destCoords) {
     section.innerHTML = `<h4 class="h6 fw-bold text-body-emphasis">🔌 Carga lenta cerca del destino</h4>
         <p class="form-text mt-0 mb-2">Para dejar el coche cargando al llegar.</p>`;
 
-    const evParams = getEffectiveParams();
     const tariffs = getEvTariffs();
 
     nearby.forEach(c => {
@@ -1940,7 +1944,7 @@ async function appendDestinationChargers(destCoords) {
             <div class="d-flex justify-content-between align-items-center">
                 <div class="flex-grow-1">
                     <p class="fw-bold station-name mb-0">${escapeHtml(c.name)}</p>
-                    <p class="small text-body-secondary mb-0">${escapeHtml(c.kw)} kW ${c.dc ? 'DC' : 'AC'}${c.op ? ` · ${escapeHtml(c.op)}` : ''} · a ${c.distKm.toFixed(1)} km del destino</p>
+                    <p class="small text-body-secondary mb-0">${escapeHtml(c.kw)} kW ${c.dc ? 'DC' : 'AC'}${c.op ? ` · ${escapeHtml(c.op)}` : ''}${c.cli ? ' · solo clientes' : ''} · a ${c.distKm.toFixed(1)} km del destino</p>
                     <p class="small fw-bold text-body-emphasis mb-0">${formatStationPrice(station, evParams)}</p>
                     ${priceNoteHtml(station)}
                     ${rawCost}

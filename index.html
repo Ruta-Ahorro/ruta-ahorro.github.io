@@ -359,6 +359,14 @@
                         </div>
                         <p class="form-text mt-1">Solo se usa si un cargador no tiene precio publicado ni estimación. Cuando falta el precio, se estima con lo que cobra ese operador en cargadores parecidos y se marca con «≈».</p>
                     </div>
+                    <!-- Se muestra solo si los datos cargados traen cargadores de uso exclusivo para clientes -->
+                    <div id="ev-customers-option" class="mb-2 d-none">
+                        <div class="form-check">
+                            <input type="checkbox" id="ev-include-customers" name="ev-include-customers" class="form-check-input">
+                            <label for="ev-include-customers" class="form-check-label">Incluir cargadores solo para clientes</label>
+                        </div>
+                        <p class="form-text mt-1">Hoteles, concesionarios, supermercados…: solo puedes cargar si eres cliente del sitio.</p>
+                    </div>
                     <div class="form-check">
                         <input type="checkbox" id="slow-charge-dest" name="slow-charge-dest" class="form-check-input" checked>
                         <label for="slow-charge-dest" class="form-check-label">Sugerir carga lenta (≤ 22 kW) cerca del destino</label>

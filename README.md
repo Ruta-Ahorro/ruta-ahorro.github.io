@@ -37,6 +37,9 @@ las paradas de repostaje para ahorrar dinero en cada viaje.
   ("Mis tarifas por operador", para suscripciones y planes; €/kWh en AC y en DC),
   el precio publicado, o una estimación marcada con «≈» (mediana de lo que cobra
   ese operador en cargadores parecidos). Los gratuitos aparecen como "Gratis".
+- Los cargadores que OpenChargeMap marca como privados no se usan. Los de uso
+  exclusivo para clientes (hoteles, concesionarios, supermercados) solo se
+  ofrecen si activas "Incluir cargadores solo para clientes".
 - Las tarjetas avisan de los recargos que no entran en el €/kWh: parking de pago,
   penalización por minuto, cobro por tiempo o coste fijo por sesión.
 - Cada parada muestra el tiempo de carga estimado (a la potencia máxima del
