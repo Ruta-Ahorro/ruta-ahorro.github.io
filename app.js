@@ -518,6 +518,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Búsqueda alrededor de la ubicación actual
     document.getElementById('nearby-btn').addEventListener('click', handleNearbySearch);
 
+    // Ranking de marcas y estaciones más baratas
+    document.getElementById('ranking-btn')?.addEventListener('click', openRanking);
+
     // Enlaces de navegación (Google Maps, Waze, Apple Maps, "cómo llegar").
     // Son botones con data-open-url en vez de <a href>: la analítica registra
     // automáticamente la URL de los enlaces salientes, y estas URL llevan el
@@ -1956,6 +1959,334 @@ async function appendDestinationChargers(destCoords) {
     });
 
     resultsDiv.appendChild(section);
+}
+
+// --- Ranking de precios: marcas y estaciones más baratas por zona ---
+// El cálculo está en ranking.js; aquí se preparan los datos, se elige el
+// ámbito (España, provincia o cerca de ti) y se pinta el resultado.
+const RANKING_PREFS_KEY = 'rutaAhorroRanking';
+const RANKING_NEAR_KM = 10;
+// Puntos mínimos para que una marca entre en el ranking, según el ámbito
+const RANKING_MIN_POINTS = { es: 10, prov: 5, near: 3 };
+// Tipos de carga y potencias que se comparan entre sí (no tiene sentido
+// comparar una carga lenta con una ultrarrápida)
+const RANKING_EV_KINDS = [
+    { value: 'DC', group: 'Carga rápida (DC)', label: 'Rápida, hasta 149 kW', test: c => c.dc && c.kw < 150 },
+    { value: 'DC50', group: 'Carga rápida (DC)', label: 'Hasta 99 kW', test: c => c.dc && c.kw < 100 },
+    { value: 'DC100', group: 'Carga rápida (DC)', label: '100 a 149 kW', test: c => c.dc && c.kw >= 100 && c.kw < 150 },
+    { value: 'HPC', group: 'Ultrarrápida (DC)', label: 'Ultrarrápida, 150 kW o más', test: c => c.dc && c.kw >= 150 },
+    { value: 'HPC150', group: 'Ultrarrápida (DC)', label: '150 a 299 kW', test: c => c.dc && c.kw >= 150 && c.kw < 300 },
+    { value: 'HPC300', group: 'Ultrarrápida (DC)', label: '300 kW o más', test: c => c.dc && c.kw >= 300 },
+    { value: 'AC', group: 'Carga lenta (AC)', label: 'Carga lenta (AC)', test: c => !c.dc }
+];
+
+let rankingPosition = null; // última posición conocida para "cerca de mí"
+
+function loadRankingPrefs() {
+    try {
+        return JSON.parse(localStorage.getItem(RANKING_PREFS_KEY)) || {};
+    } catch (e) {
+        return {};
+    }
+}
+
+function saveRankingPrefs(prefs) {
+    try {
+        localStorage.setItem(RANKING_PREFS_KEY, JSON.stringify(prefs));
+    } catch (e) { /* almacenamiento no disponible: ignorar */ }
+}
+
+const formatPercent = (dif) => {
+    const value = Math.abs(dif * 100).toFixed(1).replace('.', ',');
+    return dif < -0.0005 ? `−${value} %` : dif > 0.0005 ? `+${value} %` : '0 %';
+};
+
+function getCurrentPositionAsync() {
+    return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+            reject(new Error('La geolocalización no está soportada en tu navegador.'));
+            return;
+        }
+        navigator.geolocation.getCurrentPosition(
+            pos => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+            () => reject(new Error('No se pudo obtener tu ubicación. Comprueba los permisos de ubicación del navegador.')),
+            { enableHighAccuracy: false, timeout: 20000, maximumAge: 300000 }
+        );
+    });
+}
+
+// Puntos del país para el combustible o tipo de carga elegido, con lo que
+// necesita ranking.js: marca, provincia, precio que pagas (precio) y precio
+// público (ref, para calcular lo normal en cada provincia).
+async function getRankingPoints(isEV, kind, applyOwn) {
+    if (!isEV) {
+        const fuelType = kind;
+        const publicStations = allGasStations.filter(s => s.tipoVenta === 'P' && hasPrice(s, fuelType));
+        const priced = applyOwn ? applyDiscounts(publicStations, fuelType) : publicStations;
+        const brandOf = resolverMarcas(allGasStations.map(s => s.name));
+        return priced.map((s, i) => ({
+            id: s.id, name: s.name, address: s.address, lat: s.lat, lon: s.lon,
+            horario: s.horario, prov: s.prov || null,
+            marca: brandOf(s.name),
+            ref: publicStations[i].prices[fuelType],
+            precio: s.prices[fuelType],
+            ownPrice: s.prices[fuelType] < publicStations[i].prices[fuelType]
+        }));
+    }
+
+    const chargers = await fetchChargers();
+    const includeCustomerOnly = document.getElementById('ev-include-customers')?.checked ?? false;
+    const tariffs = applyOwn ? getEvTariffs() : [];
+    const kindDef = RANKING_EV_KINDS.find(k => k.value === kind) || RANKING_EV_KINDS[0];
+    const points = [];
+    for (const c of chargers) {
+        if (!kindDef.test(c) || (c.cli && !includeCustomerOnly)) continue;
+        const rule = tariffs.find(t => (c.dc ? t.dc : t.ac) !== null && matchesOperator(c, t.op));
+        const own = rule ? (c.dc ? rule.dc : rule.ac) : null;
+        // Solo precios publicados (o tuyos): los estimados saldrían de este mismo ranking
+        if (c.precio == null && own === null) continue;
+        const operator = marcaOperador(c.op); // null si OpenChargeMap no lo conoce
+        points.push({
+            id: c.id, name: c.name, address: c.address, lat: c.lat, lon: c.lon,
+            horario: [operator, c.puntos ? `${c.puntos} ${c.puntos === 1 ? 'punto' : 'puntos'}` : null,
+                c.cli ? 'solo clientes' : null].filter(Boolean).join(' · '),
+            kw: c.kw, dc: c.dc,
+            prov: c.prov || null,
+            marca: operator,
+            ref: c.precio > 0 ? c.precio : null,
+            precio: own ?? c.precio,
+            ownPrice: own !== null,
+            extra: c.extra
+        });
+    }
+    return points;
+}
+
+async function openRanking() {
+    if (getVehicleMode() !== 'ev' && allGasStations.length === 0) {
+        showMessage('error', 'Los precios aún se están cargando. Inténtalo en unos segundos.');
+        return;
+    }
+    const prefs = loadRankingPrefs();
+    const isEV = getVehicleMode() === 'ev';
+    const state = {
+        isEV,
+        kind: isEV
+            ? (RANKING_EV_KINDS.some(k => k.value === prefs.evKind) ? prefs.evKind : 'DC')
+            : document.getElementById('fuel-type').value,
+        scope: prefs.scope || 'es',
+        applyOwn: prefs.applyOwn ?? true
+    };
+
+    form.classList.add('d-none');
+    messageContainer.classList.add('d-none');
+    resultsContainer.classList.remove('d-none');
+    resultsDiv.innerHTML = '';
+    await renderRanking(state);
+}
+
+async function renderRanking(state) {
+    showSpinner();
+    try {
+        const { isEV } = state;
+        const points = await getRankingPoints(isEV, state.kind, state.applyOwn);
+        const reference = referenciaPorZona(points);
+
+        // Provincias disponibles en los datos (los antiguos no la traen)
+        const provinces = [...new Set(points.map(p => p.prov).filter(p => PROVINCIAS[p]))]
+            .sort((a, b) => PROVINCIAS[a].localeCompare(PROVINCIAS[b], 'es'));
+        if (state.scope !== 'es' && state.scope !== 'near' && !provinces.includes(state.scope)) state.scope = 'es';
+
+        // Ámbito
+        let scoped = points;
+        let scopeKind = 'es';
+        if (state.scope === 'near') {
+            try {
+                rankingPosition = await getCurrentPositionAsync();
+            } catch (error) {
+                state.scope = 'es';
+                showMessage('error', error.message);
+                messageContainer.classList.remove('d-none');
+            }
+        }
+        if (state.scope === 'near' && rankingPosition) {
+            scopeKind = 'near';
+            const here = turf.point([rankingPosition.lon, rankingPosition.lat]);
+            scoped = points
+                .map(p => ({ ...p, distKm: turf.distance(here, turf.point([p.lon, p.lat]), { units: 'kilometers' }) }))
+                .filter(p => p.distKm <= RANKING_NEAR_KM);
+        } else if (state.scope !== 'es') {
+            scopeKind = 'prov';
+            scoped = points.filter(p => p.prov === state.scope);
+        }
+
+        const minPoints = RANKING_MIN_POINTS[scopeKind];
+        const brands = rankingMarcas(scoped, reference, { minPuntos: minPoints });
+        // En toda España, la lista de estaciones excluye Canarias, Ceuta y Melilla:
+        // con otros impuestos, ocuparían siempre los primeros puestos
+        const stationPool = scopeKind === 'es' ? scoped.filter(p => !FISCALIDAD_PROPIA.has(p.prov)) : scoped;
+        const stations = rankingEstaciones(stationPool, 10);
+        const freeCount = isEV ? scoped.filter(p => p.precio === 0).length : 0;
+
+        savePrefsFromState(state);
+        paintRanking(state, { provinces, brands, stations, freeCount, minPoints, scopeKind, total: scoped.length });
+    } catch (error) {
+        console.error('Error en el ranking:', error);
+        showMessage('error', error.message);
+        messageContainer.classList.remove('d-none');
+    } finally {
+        hideSpinner();
+    }
+}
+
+function savePrefsFromState(state) {
+    const prefs = loadRankingPrefs();
+    prefs.scope = state.scope;
+    prefs.applyOwn = state.applyOwn;
+    if (state.isEV) prefs.evKind = state.kind;
+    saveRankingPrefs(prefs);
+}
+
+function paintRanking(state, { provinces, brands, stations, freeCount, minPoints, scopeKind, total }) {
+    const { isEV } = state;
+    const params = { fuelType: isEV ? 'EV' : state.kind };
+    const hasOwn = isEV ? getEvTariffs().length > 0 : getDiscounts().length > 0;
+    const zoneName = scopeKind === 'near' ? `a menos de ${RANKING_NEAR_KM} km`
+        : scopeKind === 'prov' ? `en ${PROVINCIAS[state.scope]}` : 'en España';
+    const unitPlural = isEV ? 'puntos' : 'gasolineras';
+
+    const option = ([value, label]) => `<option value="${escapeHtml(value)}"${value === state.kind ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+    const kindOptionsHtml = isEV
+        ? [...new Set(RANKING_EV_KINDS.map(k => k.group))].map(group =>
+            `<optgroup label="${escapeHtml(group)}">${RANKING_EV_KINDS.filter(k => k.group === group).map(k => option([k.value, k.label])).join('')}</optgroup>`).join('')
+        : [...document.getElementById('fuel-type').options].map(o => option([o.value, o.textContent])).join('');
+
+    resultsDiv.innerHTML = `
+        <div class="mb-3 d-flex justify-content-between align-items-center">
+            <h3 class="h5 fw-bold text-body-emphasis mb-0"><i class="bi bi-trophy me-2" aria-hidden="true"></i>Ranking de precios</h3>
+            <button id="ranking-back-btn" class="btn btn-danger d-flex align-items-center gap-2" aria-label="Volver"><i class="bi bi-arrow-return-left" aria-hidden="true"></i></button>
+        </div>
+        <div class="d-flex flex-column gap-2 mb-2">
+            <div>
+                <label for="ranking-kind" class="form-label small fw-bold mb-1">${isEV ? 'Tipo de carga y potencia' : 'Combustible'}</label>
+                <select id="ranking-kind" class="form-select form-select-sm">
+                    ${kindOptionsHtml}
+                </select>
+            </div>
+            <div>
+                <label for="ranking-scope" class="form-label small fw-bold mb-1">Zona</label>
+                <select id="ranking-scope" class="form-select form-select-sm">
+                    <option value="es"${state.scope === 'es' ? ' selected' : ''}>Toda España</option>
+                    <option value="near"${state.scope === 'near' ? ' selected' : ''}>Cerca de mí (${RANKING_NEAR_KM} km)</option>
+                    ${provinces.length ? `<optgroup label="Provincia">${provinces.map(p => `<option value="${p}"${p === state.scope ? ' selected' : ''}>${escapeHtml(PROVINCIAS[p])}</option>`).join('')}</optgroup>` : ''}
+                </select>
+                ${provinces.length ? '' : '<p class="form-text mt-1 mb-0">La elección por provincia estará disponible con la próxima actualización de los datos.</p>'}
+            </div>
+            ${hasOwn ? `<div>
+                <div class="form-check">
+                    <input type="checkbox" id="ranking-own" class="form-check-input"${state.applyOwn ? ' checked' : ''}>
+                    <label for="ranking-own" class="form-check-label small">${isEV ? 'Con mis tarifas por operador' : 'Con mis descuentos por marca'}</label>
+                </div>
+            </div>` : ''}
+        </div>
+        <h4 class="h6 fw-bold text-body-emphasis mt-3 mb-1">${isEV ? 'Operadores más baratos' : 'Marcas más baratas'} ${escapeHtml(zoneName)}</h4>
+        <p class="form-text mt-0 mb-2">Diferencia con el precio habitual de su provincia. Solo ${isEV ? 'operadores' : 'marcas'} con ${minPoints} ${unitPlural} o más ${escapeHtml(zoneName)}.</p>
+        <div id="ranking-brands"></div>
+        <h4 class="h6 fw-bold text-body-emphasis mt-3 mb-1">${isEV ? 'Puntos de carga más baratos' : 'Gasolineras más baratas'} ${escapeHtml(zoneName)}</h4>
+        ${scopeKind === 'es' ? '<p class="form-text mt-0 mb-2">Sin Canarias, Ceuta ni Melilla, que tienen otros impuestos: elige su provincia para verlas.</p>' : ''}
+        <div id="ranking-stations"></div>
+        ${freeCount ? `<p class="small text-muted mt-2">Además hay ${freeCount} ${freeCount === 1 ? 'punto gratuito' : 'puntos gratuitos'} ${escapeHtml(zoneName)}, que no cuentan en el ranking.</p>` : ''}
+        <p class="form-text mt-3">${isEV
+            ? 'Solo precios publicados por el operador; los estimados no cuentan.'
+            : 'Precios del Ministerio, solo gasolineras de venta al público.'} «Independientes» agrupa los rótulos con menos de 8 estaciones en España.</p>
+    `;
+
+    // Marcas: las 10 primeras y el resto a un clic
+    const brandsEl = document.getElementById('ranking-brands');
+    if (brands.length === 0) {
+        brandsEl.innerHTML = `<p class="small text-muted">No hay ${total ? 'suficientes ' : ''}datos ${escapeHtml(zoneName)} para comparar ${isEV ? 'operadores' : 'marcas'}.</p>`;
+    } else {
+        const row = (b, i) => {
+            const badge = b.dif < -0.0005 ? 'text-bg-success' : b.dif > 0.0005 ? 'text-bg-danger' : 'text-bg-secondary';
+            return `<li class="list-group-item d-flex justify-content-between align-items-center py-2${i >= 10 ? ' d-none ranking-extra' : ''}">
+                <div class="me-2">
+                    <span class="fw-bold">${i + 1}. ${escapeHtml(b.marca)}</span>
+                    <span class="d-block small text-muted">${b.n} ${unitPlural} · mediana ${formatPrice(b.precio, params)}</span>
+                </div>
+                <span class="badge ${badge} flex-shrink-0">${formatPercent(b.dif)}</span>
+            </li>`;
+        };
+        brandsEl.innerHTML = `<ol class="list-group mb-2 p-0">${brands.map(row).join('')}</ol>
+            ${brands.length > 10 ? `<button type="button" id="ranking-more" class="btn btn-link btn-sm p-0">Ver las ${brands.length}</button>` : ''}`;
+        document.getElementById('ranking-more')?.addEventListener('click', (e) => {
+            brandsEl.querySelectorAll('.ranking-extra').forEach(el => el.classList.remove('d-none'));
+            e.currentTarget.remove();
+        });
+    }
+
+    // Estaciones más baratas, también en el mapa
+    stationMarkers.clearLayers();
+    if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+    const stationsEl = document.getElementById('ranking-stations');
+    if (stations.length === 0) {
+        stationsEl.innerHTML = `<p class="small text-muted">No hay ${unitPlural} con precio ${escapeHtml(zoneName)}.</p>`;
+    }
+    stations.forEach((s, i) => {
+        const gmaps = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lon}`;
+        const card = document.createElement('div');
+        card.className = 'card card-body mb-2 bg-body-tertiary py-2';
+        const where = [s.address, s.prov && scopeKind === 'es' ? PROVINCIAS[s.prov] : null,
+            s.distKm != null ? `a ${s.distKm.toFixed(1)} km` : null].filter(Boolean).join(' · ');
+        const note = [s.ownPrice ? (isEV ? 'tu tarifa' : 'con tu descuento') : null,
+            ...(s.extra || []).map(x => PRICE_EXTRA_LABELS[x] ? `+ ${PRICE_EXTRA_LABELS[x]}` : null)].filter(Boolean);
+        card.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="flex-grow-1">
+                    <p class="fw-bold station-name mb-0">${i + 1}. ${escapeHtml(s.name)}</p>
+                    <p class="small text-body-secondary mb-0">${escapeHtml(s.horario || '')}</p>
+                    <p class="small text-muted mb-0">${escapeHtml(where)}</p>
+                </div>
+                <div class="text-end ms-2 flex-shrink-0">
+                    <p class="h6 fw-bold text-body-emphasis mb-1">${formatPrice(s.precio, params)}</p>
+                    ${isEV ? `<p class="mb-1"><span class="badge text-bg-primary">${escapeHtml(s.kw)} kW ${s.dc ? 'DC' : 'AC'}</span></p>` : ''}
+                    ${note.length ? `<p class="small text-muted mb-1">${escapeHtml(note.join(' · '))}</p>` : ''}
+                    <button type="button" data-open-url="${escapeHtml(gmaps)}" class="btn btn-sm btn-outline-primary" title="Cómo llegar"><i class="bi bi-geo-alt" aria-hidden="true"></i> Ir</button>
+                </div>
+            </div>
+        `;
+        stationsEl.appendChild(card);
+
+        const markerHtml = `<div style="background-color: #198754; color: white; border-radius: 50%; width: 1.8rem; height: 1.8rem; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3); font-size: 0.9rem;">${i + 1}</div>`;
+        const icon = L.divIcon({ html: markerHtml, className: '', iconSize: [28, 28], iconAnchor: [14, 14] });
+        L.marker([s.lat, s.lon], { icon })
+            .bindPopup(`<b>${i + 1}. ${escapeHtml(s.name)}</b><br>${escapeHtml(s.address)}<br>${formatPrice(s.precio, params)}${isEV ? ` · ${escapeHtml(s.kw)} kW ${s.dc ? 'DC' : 'AC'}` : ''}`)
+            .addTo(stationMarkers);
+    });
+
+    const bounds = stations.map(s => [s.lat, s.lon]);
+    if (scopeKind === 'near' && rankingPosition) {
+        const hereIcon = L.divIcon({ html: '<div style="background:#0d6efd;border:3px solid white;border-radius:50%;width:1.2rem;height:1.2rem;box-shadow:0 2px 5px rgba(0,0,0,.4);"></div>', className: '', iconSize: [20, 20], iconAnchor: [10, 10] });
+        L.marker([rankingPosition.lat, rankingPosition.lon], { icon: hereIcon }).bindPopup('Tu ubicación').addTo(stationMarkers);
+        bounds.push([rankingPosition.lat, rankingPosition.lon]);
+    }
+    map.invalidateSize();
+    if (bounds.length > 1) map.fitBounds(L.latLngBounds(bounds).pad(0.15));
+    else if (bounds.length === 1) map.setView(bounds[0], 12);
+
+    // Controles
+    document.getElementById('ranking-back-btn').addEventListener('click', resetUI);
+    document.getElementById('ranking-kind').addEventListener('change', (e) => {
+        state.kind = e.target.value;
+        renderRanking(state);
+    });
+    document.getElementById('ranking-scope').addEventListener('change', (e) => {
+        state.scope = e.target.value;
+        renderRanking(state);
+    });
+    document.getElementById('ranking-own')?.addEventListener('change', (e) => {
+        state.applyOwn = e.target.checked;
+        renderRanking(state);
+    });
 }
 
 // --- Búsqueda alrededor de la ubicación actual ---

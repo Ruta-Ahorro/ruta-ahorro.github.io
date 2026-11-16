@@ -1,6 +1,6 @@
 // Service worker: caché del "app shell" para que la PWA abra sin conexión.
 // Incrementar CACHE_NAME al cambiar las listas de abajo.
-const CACHE_NAME = 'gas-ruta-cache-v2.6';
+const CACHE_NAME = 'gas-ruta-cache-v2.7';
 
 // Ficheros propios. Si alguno falla, la instalación falla (y se reintenta).
 const APP_SHELL = [
@@ -8,6 +8,7 @@ const APP_SHELL = [
     '/index.html',
     '/app.js',
     '/route-stations.js',
+    '/ranking.js',
     '/worker.js',
     '/analytics.js',
     '/dark-mode.js',

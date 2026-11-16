@@ -27,6 +27,27 @@ las paradas de repostaje para ahorrar dinero en cada viaje.
 6. Las rutas son compartibles: la URL incluye `?origen=...&destino=...` (y `&paradas=`, `&modo=ev`,
    `&coords=` con las coordenadas de los puntos elegidos en el autocompletado).
 7. "Buscar cerca de mi ubicación" lista lo más barato alrededor de tu posición, en ambos modos.
+8. "Ranking de precios" muestra las marcas (u operadores de carga) y las estaciones más
+   baratas de toda España, de una provincia o a menos de 10 km, para cada combustible o
+   tipo de carga. Ver [Ranking de precios](#ranking-de-precios).
+
+### Ranking de precios
+
+- Cada precio se compara con la mediana de su provincia, y por marca se toma la mediana
+  de esa diferencia («−6,8 %» = un 6,8 % más barata de lo habitual donde está). Así no
+  gana la marca que solo tiene estaciones en zonas baratas, y Canarias, Ceuta y Melilla
+  (con otros impuestos) no distorsionan la comparación.
+- Una marca entra si tiene al menos 10 estaciones en España, 5 en la provincia o 3 cerca
+  de ti. Los rótulos con menos de 8 estaciones en todo el país van a «Independientes»;
+  las variantes del mismo rótulo y CEPSA/MOEVE se unifican ([`ranking.js`](ranking.js)).
+- La lista de estaciones de toda España no incluye Canarias, Ceuta ni Melilla; se ven
+  eligiendo su provincia.
+- Opcionalmente se aplican tus descuentos por marca o tus tarifas por operador.
+- Eléctricos: se separan carga lenta (AC), rápida (DC hasta 149 kW) y ultrarrápida
+  (150 kW o más), y dentro de cada una se puede afinar la potencia (hasta 99 kW,
+  100–149, 150–299, 300 o más); cada punto muestra su potencia. Solo cuentan los precios publicados (no los estimados) y los gratuitos
+  van aparte. La provincia de cada cargador sale de su código postal o, si no lo tiene,
+  de la gasolinera más cercana.
 
 ### Modo eléctrico
 
@@ -86,6 +107,7 @@ las paradas de repostaje para ahorrar dinero en cada viaje.
 | `index.html` | Interfaz principal (Bootstrap 5) |
 | `app.js` | Lógica de la aplicación: formulario, mapa, carga de datos, resultados |
 | `worker.js` | Web Worker con los dos algoritmos de optimización de paradas |
+| `ranking.js` | Cálculo del ranking de precios (marcas y estaciones por zona), compartido con los tests |
 | `route-stations.js` | Geometría compartida por `app.js` y `worker.js`: estaciones cercanas a la ruta y su kilómetro |
 | `sw.js` | Service worker (PWA, caché del app shell) |
 | `dark-mode.js` | Conmutador de tema claro/oscuro |
@@ -98,6 +120,7 @@ las paradas de repostaje para ahorrar dinero en cada viaje.
 | `tests/test-worker.js` | Tests de los algoritmos de optimización y de la geometría |
 | `tests/test-scripts.js` | Tests de los scripts que generan los datos |
 | `tests/test-precios.js` | Tests del intérprete de precios de cargadores |
+| `tests/test-ranking.js` | Tests del ranking de precios |
 
 ## Desarrollo local
 

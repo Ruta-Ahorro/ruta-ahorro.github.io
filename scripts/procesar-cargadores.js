@@ -43,10 +43,57 @@ function clasificadorAcceso(ref) {
     };
 }
 
-function procesarCargadores(raw, ref) {
+// --- Provincia (código INE "01".."52") ---
+// En España las dos primeras cifras del código postal son el código INE de la
+// provincia. Si el punto no trae un código postal válido, se toma la provincia
+// de la gasolinera más cercana (a menos de 25 km), que acierta salvo justo en
+// los límites entre provincias.
+function provinciaPorCodigoPostal(cp) {
+    const m = String(cp || '').match(/(?:^|\D)(\d{5})(?:\D|$)/);
+    if (!m) return null;
+    const n = Number(m[1].slice(0, 2));
+    return n >= 1 && n <= 52 ? m[1].slice(0, 2) : null;
+}
+
+// Devuelve (lat, lon) -> provincia de la gasolinera más cercana, o null.
+// Rejilla de 0,1° para no comparar cada cargador con todas las gasolineras.
+function localizadorProvincias(estaciones) {
+    const CELDA = 0.1;
+    const MAX_KM = 25;
+    const rejilla = new Map();
+    const clave = (i, j) => `${i}|${j}`;
+    for (const e of estaciones || []) {
+        if (!e.prov || !Number.isFinite(e.lat) || !Number.isFinite(e.lon)) continue;
+        const k = clave(Math.floor(e.lat / CELDA), Math.floor(e.lon / CELDA));
+        if (!rejilla.has(k)) rejilla.set(k, []);
+        rejilla.get(k).push(e);
+    }
+    if (rejilla.size === 0) return () => null;
+
+    return (lat, lon) => {
+        const ci = Math.floor(lat / CELDA);
+        const cj = Math.floor(lon / CELDA);
+        const kmLon = 111.32 * Math.cos(lat * Math.PI / 180);
+        let mejor = null;
+        let mejorKm = MAX_KM;
+        // 3 celdas a cada lado cubren de sobra los 25 km
+        for (let di = -3; di <= 3; di++) {
+            for (let dj = -3; dj <= 3; dj++) {
+                for (const e of rejilla.get(clave(ci + di, cj + dj)) || []) {
+                    const km = Math.hypot((e.lat - lat) * 110.57, (e.lon - lon) * kmLon);
+                    if (km < mejorKm) { mejorKm = km; mejor = e.prov; }
+                }
+            }
+        }
+        return mejor;
+    };
+}
+
+function procesarCargadores(raw, ref, estaciones = []) {
     // OperatorID -> nombre del operador (relevante para suscripciones)
     const operadores = new Map(((ref && ref.Operators) || []).map(o => [o.ID, o.Title]));
     const acceso = clasificadorAcceso(ref);
+    const provinciaCercana = localizadorProvincias(estaciones);
 
     // A los que no publican precio, estimarPrecios() les añade `est`
     return estimarPrecios(raw
@@ -76,6 +123,7 @@ function procesarCargadores(raw, ref) {
                 address: address || dir.Postcode || '',
                 lat: dir.Latitude,
                 lon: dir.Longitude,
+                prov: provinciaPorCodigoPostal(dir.Postcode) || provinciaCercana(dir.Latitude, dir.Longitude),
                 op: operadores.get(p.OperatorID) || null,
                 kw: maxKW,
                 dc,
@@ -93,9 +141,9 @@ function procesarCargadores(raw, ref) {
 }
 
 function main() {
-    const [rawPath, refPath, outPath] = process.argv.slice(2);
+    const [rawPath, refPath, outPath, estacionesPath] = process.argv.slice(2);
     if (!rawPath || !refPath || !outPath) {
-        console.error('Uso: node procesar-cargadores.js <ocm_raw.json> <ocm_referencedata.json> <salida.json>');
+        console.error('Uso: node procesar-cargadores.js <ocm_raw.json> <ocm_referencedata.json> <salida.json> [estaciones.json]');
         process.exit(1);
     }
 
@@ -107,7 +155,18 @@ function main() {
 
     const raw = leerJson(rawPath);
     const ref = leerJson(refPath);
-    const cargadores = procesarCargadores(raw, ref);
+    // Gasolineras ya procesadas: solo para situar en su provincia los
+    // cargadores sin código postal. Sin ellas, esos cargadores quedan sin provincia.
+    let estaciones = [];
+    if (estacionesPath && fs.existsSync(estacionesPath)) {
+        try {
+            estaciones = leerJson(estacionesPath).estaciones || [];
+        } catch (e) {
+            console.warn(`No se pudo leer ${estacionesPath}: ${e.message}`);
+        }
+    }
+
+    const cargadores = procesarCargadores(raw, ref, estaciones);
     if (cargadores.length < MIN_CARGADORES) {
         console.error(`ERROR: OpenChargeMap devolvió solo ${cargadores.length} cargadores válidos (mínimo esperado: ${MIN_CARGADORES}). No se actualiza ${outPath}.`);
         process.exit(1);
@@ -141,8 +200,9 @@ function main() {
     const privados = raw.filter(p => acceso(p.UsageTypeID) === 'privado').length;
     const soloClientes = cargadores.filter(c => c.cli).length;
     console.log(`Acceso: ${privados} privados descartados, ${soloClientes} marcados como solo para clientes`);
+    console.log(`Provincia: ${cargadores.filter(c => c.prov).length} de ${cargadores.length} cargadores situados`);
 }
 
 if (require.main === module) main();
 
-module.exports = { procesarCargadores, enEspana, MIN_CARGADORES };
+module.exports = { procesarCargadores, provinciaPorCodigoPostal, localizadorProvincias, enEspana, MIN_CARGADORES };

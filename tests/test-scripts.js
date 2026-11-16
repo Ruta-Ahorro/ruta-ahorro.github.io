@@ -5,8 +5,8 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const { procesarCargadores } = require('../scripts/procesar-cargadores.js');
-const { procesarEstaciones, MIN_ESTACIONES } = require('../scripts/procesar-estaciones.js');
+const { procesarCargadores, provinciaPorCodigoPostal } = require('../scripts/procesar-cargadores.js');
+const { procesarEstaciones, codigoProvincia, MIN_ESTACIONES } = require('../scripts/procesar-estaciones.js');
 
 let fallos = 0;
 function check(cond, msg) {
@@ -52,11 +52,28 @@ check(porAcceso.map(c => c.id).join() === 'ocm-10,ocm-11,ocm-12,ocm-15',
 check(porAcceso.find(c => c.id === 'ocm-15').cli === true && porAcceso.filter(c => c.cli).length === 1,
     'solo el de uso para clientes queda marcado con cli');
 
+// --- Cargadores: provincia ---
+console.log('\nProvincia de los cargadores\n');
+
+check(provinciaPorCodigoPostal('28013') === '28' && provinciaPorCodigoPostal('08001 Barcelona') === '08',
+    'la provincia sale de las dos primeras cifras del código postal');
+check(provinciaPorCodigoPostal('99999') === null && provinciaPorCodigoPostal('2801') === null && provinciaPorCodigoPostal(null) === null,
+    'un código postal inválido no da provincia');
+
+const conProvincia = procesarCargadores([
+    punto(20, 40.4, -3.7, 50, { AddressInfo: { Title: 'Con CP', Latitude: 40.4, Longitude: -3.7, Postcode: '45001' } }),
+    punto(21, 40.42, -3.71, 50),   // sin código postal, junto a una gasolinera de Madrid
+    punto(22, 37.0, -1.0, 50)      // sin código postal y sin gasolineras cerca
+], { Operators: [] }, [{ lat: 40.41, lon: -3.70, prov: '28' }]);
+check(conProvincia[0].prov === '45', 'el código postal manda sobre la gasolinera más cercana');
+check(conProvincia[1].prov === '28', 'sin código postal, la provincia de la gasolinera más cercana');
+check(conProvincia[2].prov === null, 'sin código postal ni gasolinera a menos de 25 km, sin provincia');
+
 // --- Estaciones: conversión y filtros ---
 console.log('\nEstaciones del Ministerio\n');
 
 const estacion = (id, lat, lon, precio) => ({
-    'IDEESS': String(id), 'Rótulo': `EESS ${id}`, 'Dirección': 'CALLE 1', 'Localidad': 'PUEBLO',
+    'IDEESS': String(id), 'IDProvincia': '28', 'Rótulo': `EESS ${id}`, 'Dirección': 'CALLE 1', 'Localidad': 'PUEBLO',
     'Latitud': lat, 'Longitud (WGS84)': lon, 'Tipo Venta': 'P', 'Horario': 'L-D: 24H',
     'Precio Gasoleo A': precio, 'Precio Gasolina 95 E5': ''
 });
@@ -70,6 +87,9 @@ check(estaciones.length === 2, `se descartan las estaciones sin coordenadas vál
 check(estaciones[0].lat === 40.416775 && estaciones[0].lon === -3.70379, 'las coordenadas con coma decimal se convierten a número');
 check(estaciones[0].prices.GA === 1.459 && !('G95E5' in estaciones[0].prices), 'los precios vacíos no se guardan');
 check(!('GA' in estaciones[1].prices), 'un precio 0 se trata como "sin dato"');
+check(estaciones[0].prov === '28', 'se guarda el código de provincia');
+check(codigoProvincia('7') === '07' && codigoProvincia('52') === '52' && codigoProvincia('53') === null && codigoProvincia('') === null,
+    'código de provincia: dos cifras y entre 01 y 52');
 
 // --- Protección contra respuestas incompletas ---
 console.log('\nProtección contra respuestas incompletas\n');

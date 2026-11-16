@@ -48,7 +48,7 @@ jobs:
           curl -sSf --retry 3 --retry-delay 30 \
             "https://api.openchargemap.io/v3/referencedata/?key=${OCM_API_KEY}" \
             -o /tmp/ocm_ref.json
-          node scripts/procesar-cargadores.js /tmp/ocm_raw.json /tmp/ocm_ref.json data/cargadores.json
+          node scripts/procesar-cargadores.js /tmp/ocm_raw.json /tmp/ocm_ref.json data/cargadores.json data/estaciones.json
 
       - name: Commit y push si hay cambios
         run: |
